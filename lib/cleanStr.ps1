@@ -1,6 +1,6 @@
 function cleanStr ($myString) {
  begin {
-  $baddies = 'drop', 'truncate', 'alter', 'table', 'update', 'delete', 'create',
+  $baddies = 'drop', 'truncate', 'alter procedure', 'table', 'update', 'delete', 'create',
   'join', 'select', 'order by', ';', ':'
  }
  process {

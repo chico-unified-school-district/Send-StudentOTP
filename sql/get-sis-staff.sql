@@ -4,6 +4,5 @@ WHERE
 ID = {0}
 AND CD = 'SUPchg'
 AND ND LIKE '%ADPW%Y%'
--- #TODO
--- AND DTS > DATEADD(minute,-5,getdate())
+AND DTS > DATEADD(minute,-5,getdate())
 ORDER BY DTS DESC

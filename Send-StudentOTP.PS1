@@ -33,17 +33,14 @@ param (
   [Alias('wi')]
   [SWITCH]$WhatIf
 )
-#TODO PASSWORD RESET LOGIC MISSING
-
 function Add-OPTEntry ($params, $table, $baseSql) {
   process {
-    $mail = Format-SqlVar $_.email
+    $mail = $_.email
     $myDate = Get-Date
-    $src = Format-SqlVar $ENV:COMPUTERNAME
+    $src = $ENV:COMPUTERNAME
     $sqlData = $table, $_.stuId, $_.stuNum, $_.grade, $_.siteCode, $_.samid, $mail, $_.otp, $myDate, $src
     $sql = $baseSql -f $sqlData
     Write-Verbose ('{0},{1}' -f $MyInvocation.MyCommand.Name, $sql)
-    # Invoke-Sqlcmd @params -Query $sql
     if (!$WhatIf) { Invoke-Sqlcmd @params -Query $sql }
     $_
   }
@@ -53,10 +50,10 @@ function Format-OtpEmailObj {
   process {
     $obj = '' | Select-Object stuId, stuNum, siteCode, grade, otp,
     initiator, samid, guid, pwExpires, email
-    $obj.stuId = Format-SqlVar $_.id
-    $obj.stuNum = Format-SqlVar $_.sn
-    $obj.siteCode = Format-SqlVar $_.sc
-    $obj.grade = Format-SqlVar $_.gr
+    $obj.stuId = $_.id
+    $obj.stuNum = $_.sn
+    $obj.siteCode = $_.sc
+    $obj.grade = $_.gr
     $obj
   }
 }
@@ -65,16 +62,16 @@ function Format-PwResetObj {
   process {
     $obj = '' | Select-Object id, stuId, stuNum, siteCode, grade, otp,
     samid, guid, pwExpires, email, pw, success
-    $obj.id = Format-SqlVar $_.id
-    $obj.stuId = Format-SqlVar $_.permId
-    $obj.stuNum = Format-SqlVar $_.stuNum
-    $obj.siteCode = Format-SqlVar $_.siteCode
-    $obj.grade = Format-SqlVar $_.grade
-    $obj.samid = Format-SqlVar $_.samid
-    $obj.pw = Format-SqlVar $_.newPw
+    $obj.id = $_.id
+    $obj.stuId = $_.permId
+    $obj.stuNum = $_.stuNum
+    $obj.siteCode = $_.siteCode
+    $obj.grade = $_.grade
+    $obj.samid = $_.samid
+    $obj.pw = $_.newPw
     $obj.pwExpires = if ($_.grade -ge 6) { $true } else { $false }
-    $obj.otp = Format-SqlVar $_.otp
-    $obj.email = Format-SqlVar $_.staffEmail
+    $obj.otp = $_.otp
+    $obj.email = $_.staffEmail
     $obj
   }
 }
@@ -122,7 +119,7 @@ function New-OTP {
 
 function Reset-DbEntry ($params, $baseSql) {
   process {
-    $siteCode = Format-SqlVar $_.siteCode
+    $siteCode = $_.siteCode
     $stuNum = $_.stuNum
     $sql = $baseSql -f $siteCode, $stuNum
     if (!$WhatIf) { Invoke-Sqlcmd @params -Query $sql }
@@ -169,7 +166,7 @@ function Show-Obj { Process { Write-Verbose ($MyInvocation.MyCommand.Name, $_ | 
 
 function Skip-OTP ($params, $table, $baseSql) {
   process {
-    $id = Format-SqlVar $_.stuId
+    $id = $_.stuId
     $sql = $baseSql -f $table, $id
     $data = Invoke-SqlCmd @params -Query $sql
     if ($data) { return }
@@ -246,8 +243,6 @@ function Clear-OTPRequest ($params, $table, $baseSql) {
 # =============================== Main ==================================
 # Imported Functions
 . .\lib\Clear-SessionData.ps1 # Useful function for querying SQL and returning results
-. .\lib\cleanStr.ps1
-. .\lib\Format-SqlVar.ps1
 . .\lib\Load-Module.ps1
 . .\lib\New-ADSession.ps1
 . .\lib\Select-DomainController.ps1
@@ -275,19 +270,17 @@ $Global:missingInAD = $null
 
 $clearIntEntry = Get-Content -Path '.\sql\clear-int-entry.sql' -Raw
 $delExpiredOTPInt = Get-Content -Path '.\sql\del-expired-otp.sql' -Raw
+$getPwResets = Get-Content -Path '.\sql\get-pw-resets.sql' -Raw
 $getRecentOtpInt = Get-Content '.\sql\get-recent-otp.sql' -Raw
 $getSISRequest = Get-Content -Path '.\sql\get-sis-request.sql' -Raw
-$getPwResets = Get-Content -Path '.\sql\get-pw-resets.sql' -Raw
+$getStaffUsr = Get-Content -Path '.\sql\get-sis-staff.sql' -Raw
 $newOTPEntryInt = Get-Content '.\sql\insert-otp.sql' -Raw
 $resetSISOTPRequest = Get-Content -Path '.\sql\reset-otp-request.sql' -Raw
-
-#TODO Fix Query before going live
-$getStaffUsr = Get-Content -Path '.\sql\get-sis-staff.sql' -Raw
 
 do {
   # ========== Update Expired OTP Entries by setting del to 1 ========
   Set-OtpDel $sqlParamsInt $IntSqlTable $delExpiredOTPInt
-  #TODO
+
   Test-ADSession
 
   # ========================= Send OTP Email =========================
@@ -304,7 +297,6 @@ do {
   Show-Obj
 
   # =========================== Reset PW =============================
-  #TODO Fix $getPwResets Query date compare
   Invoke-SqlCmd @sqlParamsInt -Query ($getPwResets -f $IntSqlTable) |
   Format-PwResetObj |
   Get-StuADInfo |
