@@ -9,5 +9,7 @@ function Format-SqlVar ($sqlCmd) {
     -replace 'JOIN', $swap `
     -replace 'ORDER BY', $swap `
     -replace 'DROP', $swap `
-
+    -replace ';', $swap `
+    -replace ':', $swap `
+    -replace '  ', ' '
 }
