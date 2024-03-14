@@ -222,8 +222,7 @@ function Reset-Pw {
     Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.Name, $_.samid)
     $pw = (ConvertTo-SecureString $_.pw -AsPlainText -force)
     try {
-      #TODO
-      # Set-ADAccountPassword -Identity $_.guid -NewPassword $pw -Reset -Confirm:$false -Whatif:$WhatIf
+      Set-ADAccountPassword -Identity $_.guid -NewPassword $pw -Reset -Confirm:$false -Whatif:$WhatIf
     }
     catch { $_.success = $false }
     if (!$WhatIf) { Start-Sleep 3 }
