@@ -26,10 +26,6 @@ param (
   [Parameter(Mandatory = $True)]
   [string]$FormUrl,
   [string]$StopTime = "11:00 PM",
-  [Parameter(Mandatory = $false)]
-  [string]$PrimaryGroup,
-  [Parameter(Mandatory = $true)]
-  [string]$SecondaryGroup,
   [Alias('wi')]
   [SWITCH]$WhatIf
 )
