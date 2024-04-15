@@ -237,7 +237,7 @@ function Clear-OTPRequest ($params, $table, $baseSql) {
 
 # =============================== Main ==================================
 # Imported Functions
-. .\lib\Clear-SessionData.ps1 # Useful function for querying SQL and returning results
+. .\lib\Clear-SessionData.ps1
 . .\lib\Load-Module.ps1
 . .\lib\New-ADSession.ps1
 . .\lib\Select-DomainController.ps1
