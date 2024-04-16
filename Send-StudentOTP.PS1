@@ -195,40 +195,6 @@ function Test-ADSession {
   New-ADSession -dc $dc -cmdlets $adCmdLets -cred $ADCredential
 }
 
-function Remove-GroupMem ($group) {
-  process {
-    $ADGroupParams = @{
-      Identity    = $group
-      Members     = $_.guid
-      ErrorAction = 'SilentlyContinue'
-      Confirm     = $false
-      WhatIf      = $WhatIf
-    }
-    if ([int]$_.grade -le 5) { return $_ }
-    Remove-ADGroupMember @ADGroupParams
-    Write-Host ('{0},{1},GR:{2} removed from {3}' -f $MyInvocation.MyCommand.Name, $_.samid, $_.grade, $group)
-    if (!$WhatIf) { Start-Sleep 7 } # Give AD Time to replicate
-    $_.pwExpires = $true
-    $_
-  }
-}
-
-function Add-GroupMem ($group) {
-  process {
-    $ADGroupParams = @{
-      Identity    = $group
-      Members     = $_.guid
-      ErrorAction = 'SilentlyContinue'
-      Confirm     = $false
-      WhatIf      = $WhatIf
-    }
-    if ([int]$_.grade -le 5) { return $_ }
-    Add-ADGroupMember @ADGroupParams
-    Write-Host ('{0},{1},GR:{2} removed from {3}' -f $MyInvocation.MyCommand.Name, $_.samid, $_.grade, $group)
-    $_
-  }
-}
-
 function Reset-Pw {
   process {
     Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.Name, $_.samid)
@@ -311,9 +277,7 @@ do {
   Invoke-SqlCmd @sqlParamsInt -Query ($getPwResets -f $IntSqlTable) |
   Format-PwResetObj |
   Get-StuADInfo |
-  # Remove-GroupMem | # May not be needed since the main form has a pw regex in place
   Reset-PW |
-  # Add-GroupMem |  # May not be needed since the main form has a pw regex in place
   Clear-OTPRequest $sqlParamsInt $IntSqlTable $clearIntEntry |
   Show-Obj
 
