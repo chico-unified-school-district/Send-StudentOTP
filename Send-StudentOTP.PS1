@@ -12,6 +12,8 @@ param (
   [Parameter(Mandatory = $True)]
   [System.Management.Automation.PSCredential]$SISCredential,
   [Parameter(Mandatory = $True)]
+  [int[]]$SiteCodes,
+  [Parameter(Mandatory = $True)]
   [string]$IntSqlServer,
   [Parameter(Mandatory = $True)]
   [string]$IntSqlDatabase,
@@ -261,7 +263,7 @@ do {
   Test-ADSession
 
   # ========================= Send OTP Email =========================
-  Invoke-SqlCmd @sqlParamsSIS -Query $getSISRequest |
+  Invoke-SqlCmd @sqlParamsSIS -Query ($getSISRequest -f ($SiteCodes -join ',')) |
   Format-OtpEmailObj |
   Get-StuADInfo |
   Skip-OTP $sqlParamsInt $IntSqlTable $getRecentOtpInt |
