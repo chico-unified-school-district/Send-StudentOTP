@@ -23,6 +23,8 @@ param (
   [System.Management.Automation.PSCredential]$EmailCredential,
   [Parameter(Mandatory = $false)]
   [string[]]$Bcc,
+  [Parameter(Mandatory = $true)]
+  [string[]]$AdminEmail,
   [Parameter(Mandatory = $True)]
   [string]$FormUrl,
   [string]$StopTime = "11:00 PM",
@@ -45,7 +47,7 @@ function Add-OPTEntry ($params, $table, $baseSql) {
 function Format-OtpEmailObj {
   process {
     $obj = '' | Select-Object stuId, stuNum, siteCode, grade, otp,
-    initiator, samid, guid, pwExpires, email
+    initiator, samid, guid, pwExpires, email, error
     $obj.stuId = $_.id
     $obj.stuNum = $_.sn
     $obj.siteCode = $_.sc
@@ -76,7 +78,10 @@ function Get-Email {
   process {
     if ($_.initiator.length -lt 1) { return $_ }
     $obj = Get-ADuser -Filter ("SamAccountName -eq '{0}'" -f $_.initiator) -Properties Mail
-    if (!$obj) { Write-Host ('{0},{1},AD Staff obj not found' -f $msg ) -F Red }
+    if (!$obj) {
+      $msg = $MyInvocation.MyCommand.Name, $_.samid, $_.initiator
+      Write-Host ('{0},{1},{2},AD Staff obj not found' -f $msg) -F Red
+    }
     $_.email = $obj.Mail
     $_
   }
@@ -127,9 +132,10 @@ function Reset-DbEntry ($params, $baseSql) {
 function Send-OTPMsg ($url) {
   begin {
     $baseHtml = Get-Content '.\html\otp-msg.html' -Raw
+    $baseErrorHtml = Get-Content '.\html\otp-error-msg.html' -Raw
     $params = @{
       From       = '<{0}>' -f $EmailCredential.Username
-      Subject    = 'CUSD Student OTP'
+      Subject    = $null
       BodyAsHTML = $True
       Bcc        = $null
       SMTPServer = 'smtp.office365.com'
@@ -139,9 +145,18 @@ function Send-OTPMsg ($url) {
     }
   }
   process {
-    Write-Host ('{0},{1},{2},{3}' -f $MyInvocation.MyCommand.Name, $_.email, $_.samid, (Get-Date)) -F Blue
-    $params.To = '<{0}>' -f $_.email
-    $params.Body = $baseHtml -f $_.samid, $_.otp, $url , $_.grade
+    if ($null -eq $_.email) {
+      $params.to = $AdminEmail
+      $params.subject = 'Error - CUSD Student OTP'
+      $params.Body = $baseErrorHtml -f $_.samid, $_.grade, $_.initiator
+    }
+    else {
+      $params.To = '<{0}>' -f $_.email
+      $params.subject = 'CUSD Student OTP'
+      $params.Body = $baseHtml -f $_.samid, $_.otp, $url , $_.grade
+    }
+    $msg = $MyInvocation.MyCommand.Name, $params.Subject, ($params.to -join ','), $_.samid, (Get-Date)
+    Write-Host ('{0},{1},{2},{3},{4}' -f $msg) -F Blue
     if ( $Bcc ) { $params.Bcc = $Bcc } # Add Bcc to outgoing email messages.
     if (!$WhatIf) { Send-MailMessage @params }
     Write-Verbose ($params.body | out-string)
@@ -165,6 +180,7 @@ function Skip-OTP ($params, $table, $baseSql) {
     $id = $_.stuId
     $sql = $baseSql -f $table, $id
     $data = Invoke-SqlCmd @params -Query $sql
+    # Skip entries older than 10 minutes
     if ($data) { return }
     $_
   }
@@ -295,9 +311,9 @@ do {
   Invoke-SqlCmd @sqlParamsInt -Query ($getPwResets -f $IntSqlTable) |
   Format-PwResetObj |
   Get-StuADInfo |
-  Remove-GroupMem |
+  # Remove-GroupMem | # May not be needed since the main form has a pw regex in place
   Reset-PW |
-  Add-GroupMem |
+  # Add-GroupMem |  # May not be needed since the main form has a pw regex in place
   Clear-OTPRequest $sqlParamsInt $IntSqlTable $clearIntEntry |
   Show-Obj
 
