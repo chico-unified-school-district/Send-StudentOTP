@@ -188,15 +188,6 @@ function Skip-OTP ($params, $table, $baseSql) {
   }
 }
 
-function Test-ADSession {
-  # AD Domain Controller Session
-  if (($global:dc) -and (Test-ComputerSecureChannel -Server $global:dc)) { return }
-  Clear-SessionData
-  $global:dc = Select-DomainController $DomainControllers
-  $adCmdLets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword', 'Remove-ADGroupMember', 'Add-ADGroupMember'
-  New-ADSession -dc $dc -cmdlets $adCmdLets -cred $ADCredential
-}
-
 function Reset-Pw {
   process {
     Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.Name, $_.samid)
@@ -226,8 +217,11 @@ function Clear-OTPRequest ($params, $table, $baseSql) {
 . .\lib\New-ADSession.ps1
 . .\lib\Select-DomainController.ps1
 . .\lib\Show-TestRun.ps1
+. .\lib\Test-ADSession.ps1
+
 
 Show-TestRun
+$adCmdLets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword', 'Remove-ADGroupMember', 'Add-ADGroupMember'
 
 'SqlServer' | Load-Module
 
@@ -260,7 +254,7 @@ do {
   # ========== Update Expired OTP Entries by setting del to 1 ========
   Set-OtpDel $sqlParamsInt $IntSqlTable $delExpiredOTPInt
 
-  Test-ADSession
+  New-ADSession $DomainControllers $ADCredential $adCmdLets
 
   # ========================= Send OTP Email =========================
   Invoke-SqlCmd @sqlParamsSIS -Query ($getSISRequest -f ($SiteCodes -join ',')) |
@@ -282,6 +276,8 @@ do {
   Reset-PW |
   Clear-OTPRequest $sqlParamsInt $IntSqlTable $clearIntEntry |
   Show-Obj
+
+  Clear-SessionData
 
   if (!$WhatIf) { Start-Sleep 5 }
 } until ($WhatIf -or ((Get-Date) -ge (Get-Date $StopTime)))
