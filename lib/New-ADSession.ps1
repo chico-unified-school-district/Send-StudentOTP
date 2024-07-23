@@ -2,7 +2,7 @@ function New-ADSession ($dcs, $adUser, $cmdlets) {
  for ($i = 0; $i -lt 30; $i++) {
   foreach ($server in $dcs) {
    # At least one dc is on at all times unless catastrophe
-   Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.Name, $server)
+   Write-Verbose ('{0},Checking [{1}]' -f $MyInvocation.MyCommand.Name $server)
    if (Test-Connection $server -Count 1 -Quiet) { $global:dc = $server; return }
   }
   Start-Sleep 10 # If connections to all dcs fail then wait before trying again
