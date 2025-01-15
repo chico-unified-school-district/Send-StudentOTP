@@ -61,7 +61,7 @@ function Format-OtpEmailObj {
 function Format-PwResetObj {
   process {
     $obj = '' | Select-Object id, stuId, stuNum, siteCode, grade, otp,
-    samid, guid, pwExpires, email, pw, success
+    samid, guid, pwExpires, email, pw, success, pwGood
     $obj.id = $_.id
     $obj.stuId = $_.permId
     $obj.stuNum = $_.stuNum
@@ -160,7 +160,12 @@ function Send-OTPMsg ($url) {
     $msg = $MyInvocation.MyCommand.Name, $params.Subject, ($params.to -join ','), $_.samid, (Get-Date)
     Write-Host ('{0},{1},{2},{3},{4}' -f $msg) -F Blue
     if ( $Bcc ) { $params.Bcc = $Bcc } # Add Bcc to outgoing email messages.
-    if (!$WhatIf) { Send-MailMessage @params }
+    if (!$WhatIf) {
+      try { Send-MailMessage @params } catch {
+        $msg = $MyInvocation.MyCommand.Name, $_.samid, $_.siteCode
+        Write-Host ('{0},{1},{2},Message did not send. Skipping' -f $msg) -F red
+      }
+    }
     Write-Verbose ($params.body | out-string)
     $_
   }
@@ -184,6 +189,18 @@ function Skip-OTP ($params, $table, $baseSql) {
     $data = Invoke-SqlCmd @params -Query $sql
     # Skip entries older than 10 minutes
     if ($data) { return }
+    $_
+  }
+}
+
+function Skip-InvalidPw {
+  process {
+    $invalidPhraseDetected = Test-InvalidString $_.pw
+    if ($invalidPhraseDetected -eq $true) {
+      $msg = $MyInvocation.MyCommand.Name, $_.stuId, $_.pw
+      Write-Host ('{0},{1},Password string contains invalid phrases,{2}' -f $msg) -F Magenta
+      return
+    }
     $_
   }
 }
@@ -213,15 +230,14 @@ function Clear-OTPRequest ($params, $table, $baseSql) {
 # =============================== Main ==================================
 # Imported Functions
 . .\lib\Clear-SessionData.ps1
+# . .\lib\Test-InvalidString.ps1
 . .\lib\Load-Module.ps1
 . .\lib\New-ADSession.ps1
 . .\lib\Select-DomainController.ps1
 . .\lib\Show-TestRun.ps1
-. .\lib\Test-ADSession.ps1
-
 
 Show-TestRun
-$adCmdLets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword', 'Remove-ADGroupMember', 'Add-ADGroupMember'
+$adCmdLets = 'Get-ADUser', 'Set-ADAccountPassword'
 
 'SqlServer' | Load-Module
 
@@ -254,9 +270,11 @@ do {
   # ========== Update Expired OTP Entries by setting del to 1 ========
   Set-OtpDel $sqlParamsInt $IntSqlTable $delExpiredOTPInt
 
-  New-ADSession $DomainControllers $ADCredential $adCmdLets
+  $dc = Select-DomainController $DomainControllers
+  New-ADSession $dc $ADCredential $adCmdLets
 
   # ========================= Send OTP Email =========================
+  Write-Verbose ('{0},DB:{1},Sites:{2}' -f $MyInvocation.MyCommand.Name, $SISDatabase, ($SiteCodes -join ','))
   Invoke-SqlCmd @sqlParamsSIS -Query ($getSISRequest -f ($SiteCodes -join ',')) |
   Format-OtpEmailObj |
   Get-StuADInfo |
@@ -272,6 +290,7 @@ do {
   # =========================== Reset PW =============================
   Invoke-SqlCmd @sqlParamsInt -Query ($getPwResets -f $IntSqlTable) |
   Format-PwResetObj |
+  # Skip-InvalidPw |
   Get-StuADInfo |
   Reset-PW |
   Clear-OTPRequest $sqlParamsInt $IntSqlTable $clearIntEntry |
