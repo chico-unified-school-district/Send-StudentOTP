@@ -165,7 +165,7 @@ function Send-OTPMsg ($url) {
   }
   else {
    $params.To = '<{0}>' -f $_.email
-   $params.subject = 'CUSD Student OTP'
+   $params.subject = '{0} - CUSD Student OTP' -f $_.samid
    $params.Body = $baseHtml -f $_.samid, $_.otp, $url , $_.grade
   }
   $msg = $MyInvocation.MyCommand.Name, $params.Subject, ($params.to -join ','), $_.samid, (Get-Date)
