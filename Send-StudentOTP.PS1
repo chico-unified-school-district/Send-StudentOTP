@@ -22,6 +22,8 @@ param (
  [Parameter(Mandatory = $True)]
  [string]$IntSqlTable,
  [Parameter(Mandatory = $True)]
+ [int]$TimeOutMinutes,
+ [Parameter(Mandatory = $True)]
  [System.Management.Automation.PSCredential]$EmailCredential,
  [Parameter(Mandatory = $false)]
  [string[]]$Bcc,
@@ -180,21 +182,20 @@ function Send-OTPMsg ($url) {
  }
 }
 
-function Set-OtpDel ($params, $table, $baseSql) {
- $recentRequestsSql = $baseSql -f $table
- $recentRequests = New-SqlOperation @params -Query $recentRequestsSql
+function Set-OtpDel ($params, $getExpiredSql, $setExpiredSql) {
+ $recentRequests = New-SqlOperation @params -Query $getExpiredSql
  if (!$recentRequests) { return }
- Write-Host('{0},{1},{2},{3}' -f $MyInvocation.MyCommand.Name, $data.id, $data.permId, (Get-Date))
- # This 'deletes' entries that are over 10 minutes old, essentially expiring the OTP/Reset request - Kinda Important!
- $expireRecentSql = "UPDATE {0} SET del = 1 WHERE requestDate < DATEADD(minute, -10, getdate()) AND del IS NULL" -f $table
- if (!$WhatIf) { New-SqlOperation @params -Query $expireRecentSql }
+ Write-Host('{0},{1},[{2}]' -f $MyInvocation.MyCommand.Name, (Get-Date), $recentRequests )
+ # This 'deletes' entries that are over x minutes old, essentially expiring the OTP/Reset request - Kinda Important!
+ if (!$WhatIf) { New-SqlOperation @params -Query $setExpiredSql }
 }
 
 function Show-Obj { Process { Write-Verbose ($MyInvocation.MyCommand.Name, $_ | Out-String) } }
 
-function Skip-OTP ($params, $table, $baseSql) {
+function Skip-OTP ($params, $table, $baseSql, $mins) {
  process {
-  $sql = $baseSql -f $table, $id
+  $sql = $baseSql -f $table, $mins
+  Write-Verbose $sql
   $sqlVars = "id=$($_.stuId)"
   $data = New-SqlOperation @params -Query $sql -Parameters $sqlVars
   # Skip requests older than 10 minutes. Who needs em!
@@ -234,6 +235,7 @@ Import-Module -Name CommonScriptFunctions, dbatools
 $global:VerbosePreference = $SaveVerbosePreference
 
 Show-BlockInfo main
+Show-BlockInfo $SISDatabase
 
 if ($WhatIf) { Show-TestRun }
 
@@ -253,40 +255,41 @@ $sqlParamsInt = @{
 
 $Global:missingInAD = $null
 
-$clearIntEntry = Get-Content -Path '.\sql\clear-int-entry.sql' -Raw
-$delExpiredOTPInt = Get-Content -Path '.\sql\del-expired-otp.sql' -Raw
-$getPwResets = Get-Content -Path '.\sql\get-pw-resets.sql' -Raw
-$getRecentOtpInt = Get-Content '.\sql\get-recent-otp.sql' -Raw
-$getSISRequest = Get-Content -Path '.\sql\get-sis-request.sql' -Raw
-$getStaffUsr = Get-Content -Path '.\sql\get-sis-staff.sql' -Raw
-$newOTPEntryInt = Get-Content '.\sql\insert-otp.sql' -Raw
-$resetSISOTPRequest = Get-Content -Path '.\sql\reset-otp-request.sql' -Raw
+$intClearEntry = (Get-Content -Path '.\sql\int-clear-entry.sql' -Raw) -f $IntSqlTable
+$intGetExpiredOTP = (Get-Content -Path '.\sql\int-get-expired-otp.sql' -Raw) -f $IntSqlTable, $TimeOutMinutes
+$intGetPwResets = (Get-Content -Path '.\sql\int-get-pw-resets.sql' -Raw) -f $IntSqlTable, $TimeOutMinutes
+$intGetRecentOtp = (Get-Content '.\sql\int-get-recent-otp.sql' -Raw) -f $IntSqlTable, $TimeOutMinutes
+$intNewOTPEntry = (Get-Content '.\sql\int-insert-otp.sql' -Raw) -f $IntSqlTable
+$intSetExpiredOTP = (Get-Content -Path '.\sql\int-update-expired-otp.sql' -Raw) -f $IntSqlTable, $TimeOutMinutes
+$sisGetRequest = Get-Content -Path '.\sql\sis-get-request.sql' -Raw
+$sisGetStaffUsr = Get-Content -Path '.\sql\sis-get-staff.sql' -Raw
+$sisResetOTPRequest = Get-Content -Path '.\sql\sis-reset-otp-request.sql' -Raw
 
 do {
  Write-Verbose '========== Update Expired OTP Entries by setting del to 1 ========'
- Set-OtpDel $sqlParamsInt $IntSqlTable $delExpiredOTPInt
+ Set-OtpDel $sqlParamsInt $intGetExpiredOTP $intSetExpiredOTP
 
  Connect-ADSession -DomainControllers $DomainControllers -Cmdlets $adCmdLets -Credential $ADCredential
 
  Write-Verbose '# ========================= Send OTP Email ========================='
- Get-SISPwRequests $sqlParamsSIS $getSISRequest $SiteCodes |
+ Get-SISPwRequests $sqlParamsSIS $sisGetRequest $SiteCodes |
   Format-OtpEmailObj |
    Get-StuADInfo |
-    Skip-OTP $sqlParamsInt $IntSqlTable $getRecentOtpInt |
+    Skip-OTP $sqlParamsInt $IntSqlTable $intGetRecentOtp $TimeOutMinutes |
      New-OTP |
-      Get-Usr $sqlParamsSIS $getStaffUsr |
+      Get-Usr $sqlParamsSIS $sisGetStaffUsr |
        Get-Email |
-        Add-OPTEntry $sqlParamsInt $IntSqlTable $newOTPEntryInt |
+        Add-OPTEntry $sqlParamsInt $IntSqlTable $intNewOTPEntry |
          Send-OTPMsg $FormUrl |
-          Reset-DbEntry $sqlParamsSIS $resetSISOTPRequest |
+          Reset-DbEntry $sqlParamsSIS $sisResetOTPRequest |
            Show-Obj
 
  Write-Verbose '# =========================== Reset PW ============================='
- New-SqlOperation @sqlParamsInt -Query ($getPwResets -f $IntSqlTable) |
+ New-SqlOperation @sqlParamsInt -Query $intGetPwResets |
   Format-PwResetObj |
    Get-StuADInfo |
     Reset-PW |
-     Clear-OTPRequest $sqlParamsInt $IntSqlTable $clearIntEntry |
+     Clear-OTPRequest $sqlParamsInt $IntSqlTable $intClearEntry |
       Show-Obj
 
  Clear-SessionData
