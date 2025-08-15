@@ -142,7 +142,7 @@ function Reset-DbEntry ($params, $sql) {
  }
 }
 
-function Send-OTPMsg ($url) {
+function Send-OTPMsg ($url, $mins) {
  begin {
   $baseHtml = Get-Content '.\html\otp-msg.html' -Raw
   $baseErrorHtml = Get-Content '.\html\otp-error-msg.html' -Raw
@@ -166,7 +166,7 @@ function Send-OTPMsg ($url) {
   else {
    $params.To = '<{0}>' -f $_.email
    $params.subject = '{0} - CUSD Student OTP' -f $_.samid
-   $params.Body = $baseHtml -f $_.samid, $_.otp, $url , $_.grade
+   $params.Body = $baseHtml -f $_.samid, $_.otp, $url, $_.grade, $mins
   }
   $msg = $MyInvocation.MyCommand.Name, $params.Subject, ($params.to -join ','), $_.samid, (Get-Date)
   Write-Host ('{0},{1},{2},{3},{4}' -f $msg) -F Blue
@@ -280,7 +280,7 @@ do {
       Get-Usr $sqlParamsSIS $sisGetStaffUsr |
        Get-Email |
         Add-OPTEntry $sqlParamsInt $IntSqlTable $intNewOTPEntry |
-         Send-OTPMsg $FormUrl |
+         Send-OTPMsg $FormUrl $TimeOutMinutes |
           Reset-DbEntry $sqlParamsSIS $sisResetOTPRequest |
            Show-Obj
 
