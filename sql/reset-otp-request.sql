@@ -1,4 +1,4 @@
 UPDATE SUP
 SET ADPW = 'N'
-WHERE SC = {0}
-and SN = {1}
+WHERE SC = @SC
+AND SN = @sn

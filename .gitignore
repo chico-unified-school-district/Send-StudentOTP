@@ -12,4 +12,3 @@ logs/*
 /jenkins.ps1
 /params.ps1
 /lib/archive
-/regex.txt

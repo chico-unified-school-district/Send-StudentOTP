@@ -1,258 +1,254 @@
 ﻿[cmdletbinding()]
 param (
-  [Parameter(Mandatory = $True)]
-  [Alias('DCs')]
-  [string[]]$DomainControllers,
-  [Parameter(Mandatory = $True)]
-  [System.Management.Automation.PSCredential]$ADCredential,
-  [Parameter(Mandatory = $True)]
-  [string]$SISServer,
-  [Parameter(Mandatory = $True)]
-  [string]$SISDatabase,
-  [Parameter(Mandatory = $True)]
-  [System.Management.Automation.PSCredential]$SISCredential,
-  [Parameter(Mandatory = $True)]
-  [int[]]$SiteCodes,
-  [Parameter(Mandatory = $True)]
-  [string]$IntSqlServer,
-  [Parameter(Mandatory = $True)]
-  [string]$IntSqlDatabase,
-  [Parameter(Mandatory = $True)]
-  [System.Management.Automation.PSCredential]$IntSqlCredential,
-  [Parameter(Mandatory = $True)]
-  [string]$IntSqlTable,
-  [Parameter(Mandatory = $True)]
-  [System.Management.Automation.PSCredential]$EmailCredential,
-  [Parameter(Mandatory = $false)]
-  [string[]]$Bcc,
-  [Parameter(Mandatory = $true)]
-  [string[]]$AdminEmail,
-  [Parameter(Mandatory = $True)]
-  [string]$FormUrl,
-  [string]$StopTime = "11:00 PM",
-  [Alias('wi')]
-  [SWITCH]$WhatIf
+ [Parameter(Mandatory = $True)]
+ [Alias('DCs')]
+ [string[]]$DomainControllers,
+ [Parameter(Mandatory = $True)]
+ [System.Management.Automation.PSCredential]$ADCredential,
+ [Parameter(Mandatory = $True)]
+ [string]$SISServer,
+ [Parameter(Mandatory = $True)]
+ [string]$SISDatabase,
+ [Parameter(Mandatory = $True)]
+ [System.Management.Automation.PSCredential]$SISCredential,
+ [Parameter(Mandatory = $True)]
+ [int[]]$SiteCodes,
+ [Parameter(Mandatory = $True)]
+ [string]$IntSqlServer,
+ [Parameter(Mandatory = $True)]
+ [string]$IntSqlDatabase,
+ [Parameter(Mandatory = $True)]
+ [System.Management.Automation.PSCredential]$IntSqlCredential,
+ [Parameter(Mandatory = $True)]
+ [string]$IntSqlTable,
+ [Parameter(Mandatory = $True)]
+ [System.Management.Automation.PSCredential]$EmailCredential,
+ [Parameter(Mandatory = $false)]
+ [string[]]$Bcc,
+ [Parameter(Mandatory = $true)]
+ [string[]]$AdminEmail,
+ [Parameter(Mandatory = $True)]
+ [string]$FormUrl,
+ [string]$StopTime = "11:00 PM",
+ [Alias('wi')]
+ [SWITCH]$WhatIf
 )
 function Add-OPTEntry ($params, $table, $baseSql) {
-  process {
-    $mail = $_.email
-    $myDate = Get-Date
-    $src = $ENV:COMPUTERNAME
-    $sqlData = $table, $_.stuId, $_.stuNum, $_.grade, $_.siteCode, $_.samid, $mail, $_.otp, $myDate, $src
-    $sql = $baseSql -f $sqlData
-    Write-Verbose ('{0},{1}' -f $MyInvocation.MyCommand.Name, $sql)
-    if (!$WhatIf) { Invoke-Sqlcmd @params -Query $sql }
-    $_
-  }
+ begin {
+  $sql = $baseSql -f $table
+ }
+ process {
+  $sqlVars = "id=$($_.stuId)", "num=$($_.stuNum)", "gr=$($_.grade)", "sc=$($_.siteCode)",
+  "sam=$($_.samid)", "@email=$($_.email)", "otp=$($_.otp)", "reqDate=$(Get-Date)", "src=$ENV:COMPUTERNAME"
+  $sql = $baseSql -f $table
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, ($sqlVars -join ',')) -F Magenta
+  Write-Verbose ('{0},[{1}],[{2}]' -f $MyInvocation.MyCommand.Name, $sql, ($sqlVars -join ','))
+  if (!$WhatIf) { New-SqlOperation @params -Query $sql -Parameters $sqlVars }
+  $_
+ }
 }
 
 function Format-OtpEmailObj {
-  process {
-    $obj = '' | Select-Object stuId, stuNum, siteCode, grade, otp,
-    initiator, samid, guid, pwExpires, email, error
-    $obj.stuId = $_.id
-    $obj.stuNum = $_.sn
-    $obj.siteCode = $_.sc
-    $obj.grade = $_.gr
-    $obj
-  }
+ process {
+  $obj = '' | Select-Object stuId, stuNum, siteCode, grade, otp,
+  initiator, samid, guid, pwExpires, email, error
+  $obj.stuId = $_.id
+  $obj.stuNum = $_.sn
+  $obj.siteCode = $_.sc
+  $obj.grade = $_.gr
+  $obj
+ }
 }
 
 function Format-PwResetObj {
-  process {
-    $obj = '' | Select-Object id, stuId, stuNum, siteCode, grade, otp,
-    samid, guid, pwExpires, email, pw, success, pwGood
-    $obj.id = $_.id
-    $obj.stuId = $_.permId
-    $obj.stuNum = $_.stuNum
-    $obj.siteCode = $_.siteCode
-    $obj.grade = $_.grade
-    $obj.samid = $_.samid
-    $obj.pw = $_.newPw
-    $obj.pwExpires = if ($_.grade -ge 6) { $true } else { $false }
-    $obj.otp = $_.otp
-    $obj.email = $_.staffEmail
-    $obj
-  }
+ process {
+  $obj = '' | Select-Object id, stuId, stuNum, siteCode, grade, otp,
+  samid, guid, pwExpires, email, pw, success, pwGood
+  $obj.id = $_.id
+  $obj.stuId = $_.permId
+  $obj.stuNum = $_.stuNum
+  $obj.siteCode = $_.siteCode
+  $obj.grade = $_.grade
+  $obj.samid = $_.samid
+  $obj.pw = $_.newPw
+  $obj.pwExpires = if ($_.grade -ge 6) { $true } else { $false }
+  $obj.otp = $_.otp
+  $obj.email = $_.staffEmail
+  $obj
+ }
 }
 
 function Get-Email {
-  process {
-    if ($_.initiator.length -lt 1) { return $_ }
-    $obj = Get-ADuser -Filter ("SamAccountName -eq '{0}'" -f $_.initiator) -Properties Mail
-    if (!$obj) {
-      $msg = $MyInvocation.MyCommand.Name, $_.samid, $_.initiator
-      Write-Host ('{0},{1},{2},AD Staff obj not found' -f $msg) -F Red
-    }
-    $_.email = $obj.Mail
-    $_
+ process {
+  if ($_.initiator.length -lt 1) { return $_ }
+  $obj = Get-ADuser -Filter ("SamAccountName -eq '{0}'" -f $_.initiator) -Properties Mail
+  if (!$obj) {
+   $msg = $MyInvocation.MyCommand.Name, $_.samid, $_.initiator
+   Write-Host ('{0},{1},{2},AD Staff obj not found' -f $msg) -F Red
   }
+  $_.email = $obj.Mail
+  $_
+ }
 }
 
-function Get-Usr ($params, $baseSql) {
-  process {
-    $sql = $baseSql -f $_.stuId
-    $data = Invoke-Sqlcmd @params -Query $sql
-    $msg = $MyInvocation.MyCommand.Name, $_.stuId
-    if ($data.usr.length -lt 1) { Write-Host ('{0},{1},No inititor found in LOG.' -f $msg ) -F Red }
-    $_.initiator = $data.usr
-    $_
-  }
+function Get-Usr ($params, $sql) {
+ process {
+  $sqlVars = "id=$($_.stuId)"
+  $data = New-SqlOperation @params -Query $sql -Parameters $sqlVars
+  $msg = $MyInvocation.MyCommand.Name, $_.stuId
+  if ($data.usr.length -lt 1) { Write-Host ('{0},{1},No inititor found in LOG.' -f $msg ) -F Red }
+  $_.initiator = $data.usr
+  $_
+ }
+}
+
+function Get-SISPwRequests ($params, $baseSql, $sites) {
+ process {
+  $myValues = '(' + ($sites -join '),(') + ')'
+  $sql = $baseSql -replace ('MY_VALUES', $myValues)
+  Write-Verbose ('{0},DB:{1},Sql: [{2}]' -f $MyInvocation.MyCommand.Name, $SISDatabase, $sql)
+  New-SqlOperation @params -Query $sql
+ }
 }
 
 function Get-StuADInfo {
-  process {
-    if ($global:missingInAD -contains $_.stuId) { return }
-    $obj = Get-ADuser -Filter ("EmployeeId -eq '{0}'" -f $_.stuId)
-    if (!$obj) {
-      $global:missingInAD += $_.stuId
-      $msg = $MyInvocation.MyCommand.Name, $_.stuId
-      return (Write-Host ('{0},{1},AD Student obj not found' -f $msg ) -F Red)
-    }
-    $_.samid = $obj.SamAccountName
-    $_.guid = $obj.ObjectGUID
-    $_
+ process {
+  if ($global:missingInAD -contains $_.stuId) { return }
+  $obj = Get-ADuser -Filter ("EmployeeId -eq '{0}'" -f $_.stuId)
+  if (!$obj) {
+   $global:missingInAD += $_.stuId
+   $msg = $MyInvocation.MyCommand.Name, $_.stuId
+   return (Write-Host ('{0},{1},AD Student obj not found' -f $msg ) -F Red)
   }
+  $_.samid = $obj.SamAccountName
+  $_.guid = $obj.ObjectGUID
+  $_
+ }
 }
 
 function New-OTP {
-  begin { function New-RandomOTP { Get-Random -Min 111111 -max 999999 } }
-  process { $_.otp = (New-RandomOTP); $_ }
+ begin { function New-RandomOTP { Get-Random -Min 111111 -max 999999 } }
+ process { $_.otp = (New-RandomOTP); $_ }
 }
 
-function Reset-DbEntry ($params, $baseSql) {
-  process {
-    $siteCode = $_.siteCode
-    $stuNum = $_.stuNum
-    $sql = $baseSql -f $siteCode, $stuNum
-    if (!$WhatIf) { Invoke-Sqlcmd @params -Query $sql }
-    Write-Verbose ('{0},{1}' -f $MyInvocation.MyCommand.Name, $sql)
-    $_
-  }
+function Reset-DbEntry ($params, $sql) {
+ process {
+  $sqlVars = "sc=$($_.siteCode)", "sn=$($_.stuNum)"
+  if (!$WhatIf) { New-SqlOperation @params -Query $sql -Parameters $sqlVars }
+  Write-Verbose ('{0},{1}' -f $MyInvocation.MyCommand.Name, $sql, ($sqlVars -join ','))
+  $_
+ }
 }
 
 function Send-OTPMsg ($url) {
-  begin {
-    $baseHtml = Get-Content '.\html\otp-msg.html' -Raw
-    $baseErrorHtml = Get-Content '.\html\otp-error-msg.html' -Raw
-    $params = @{
-      From       = '<{0}>' -f $EmailCredential.Username
-      Subject    = $null
-      BodyAsHTML = $True
-      Bcc        = $null
-      SMTPServer = 'smtp.office365.com'
-      Cred       = $EmailCredential # use a valid Office365 account with Flow rules in place to prevent SPAM warnings.
-      UseSSL     = $True
-      Port       = 587
-    }
+ begin {
+  $baseHtml = Get-Content '.\html\otp-msg.html' -Raw
+  $baseErrorHtml = Get-Content '.\html\otp-error-msg.html' -Raw
+  $params = @{
+   From       = '<{0}>' -f $EmailCredential.Username
+   Subject    = $null
+   BodyAsHTML = $True
+   Bcc        = $null
+   SMTPServer = 'smtp.office365.com'
+   Cred       = $EmailCredential # use a valid Office365 account with Flow rules in place to prevent SPAM warnings.
+   UseSSL     = $True
+   Port       = 587
   }
-  process {
-    if ($null -eq $_.email) {
-      $params.to = $AdminEmail
-      $params.subject = 'Error - CUSD Student OTP'
-      $params.Body = $baseErrorHtml -f $_.samid, $_.grade, $_.initiator
-    }
-    else {
-      $params.To = '<{0}>' -f $_.email
-      $params.subject = 'CUSD Student OTP'
-      $params.Body = $baseHtml -f $_.samid, $_.otp, $url , $_.grade
-    }
-    $msg = $MyInvocation.MyCommand.Name, $params.Subject, ($params.to -join ','), $_.samid, (Get-Date)
-    Write-Host ('{0},{1},{2},{3},{4}' -f $msg) -F Blue
-    if ( $Bcc ) { $params.Bcc = $Bcc } # Add Bcc to outgoing email messages.
-    if (!$WhatIf) {
-      try { Send-MailMessage @params } catch {
-        $msg = $MyInvocation.MyCommand.Name, $_.samid, $_.siteCode
-        Write-Host ('{0},{1},{2},Message did not send. Skipping' -f $msg) -F red
-      }
-    }
-    Write-Verbose ($params.body | out-string)
-    $_
+ }
+ process {
+  if ($null -eq $_.email) {
+   $params.to = $AdminEmail
+   $params.subject = 'Error - CUSD Student OTP'
+   $params.Body = $baseErrorHtml -f $_.samid, $_.grade, $_.initiator
   }
+  else {
+   $params.To = '<{0}>' -f $_.email
+   $params.subject = 'CUSD Student OTP'
+   $params.Body = $baseHtml -f $_.samid, $_.otp, $url , $_.grade
+  }
+  $msg = $MyInvocation.MyCommand.Name, $params.Subject, ($params.to -join ','), $_.samid, (Get-Date)
+  Write-Host ('{0},{1},{2},{3},{4}' -f $msg) -F Blue
+  if ( $Bcc ) { $params.Bcc = $Bcc } # Add Bcc to outgoing email messages.
+  if (!$WhatIf) {
+   try { Send-MailMessage @params } catch {
+    $msg = $MyInvocation.MyCommand.Name, $_.samid, $_.siteCode
+    Write-Host ('{0},{1},{2},Message did not send. Skipping' -f $msg) -F red
+   }
+  }
+  Write-Verbose ($params.body | out-string)
+  $_
+ }
 }
 
 function Set-OtpDel ($params, $table, $baseSql) {
-  $sql = $baseSql -f $table
-  $data = Invoke-Sqlcmd @params -Query $sql
-  if (!$data) { return }
-  Write-Host('{0},{1},{2},{3}' -f $MyInvocation.MyCommand.Name, $data.id, $data.permId, (Get-Date))
-  $updateSql = "UPDATE {0} SET del = 1 WHERE requestDate < DATEADD(minute, -10, getdate()) AND del IS NULL" -f $table
-  if (!$WhatIf) { Invoke-Sqlcmd @params -Query $updateSql }
+ $recentRequestsSql = $baseSql -f $table
+ $recentRequests = New-SqlOperation @params -Query $recentRequestsSql
+ if (!$recentRequests) { return }
+ Write-Host('{0},{1},{2},{3}' -f $MyInvocation.MyCommand.Name, $data.id, $data.permId, (Get-Date))
+ # This 'deletes' entries that are over 10 minutes old, essentially expiring the OTP/Reset request - Kinda Important!
+ $expireRecentSql = "UPDATE {0} SET del = 1 WHERE requestDate < DATEADD(minute, -10, getdate()) AND del IS NULL" -f $table
+ if (!$WhatIf) { New-SqlOperation @params -Query $expireRecentSql }
 }
 
 function Show-Obj { Process { Write-Verbose ($MyInvocation.MyCommand.Name, $_ | Out-String) } }
 
 function Skip-OTP ($params, $table, $baseSql) {
-  process {
-    $id = $_.stuId
-    $sql = $baseSql -f $table, $id
-    $data = Invoke-SqlCmd @params -Query $sql
-    # Skip entries older than 10 minutes
-    if ($data) { return }
-    $_
-  }
-}
-
-function Skip-InvalidPw {
-  process {
-    $invalidPhraseDetected = Test-InvalidString $_.pw
-    if ($invalidPhraseDetected -eq $true) {
-      $msg = $MyInvocation.MyCommand.Name, $_.stuId, $_.pw
-      Write-Host ('{0},{1},Password string contains invalid phrases,{2}' -f $msg) -F Magenta
-      return
-    }
-    $_
-  }
+ process {
+  $sql = $baseSql -f $table, $id
+  $sqlVars = "id=$($_.stuId)"
+  $data = New-SqlOperation @params -Query $sql -Parameters $sqlVars
+  # Skip requests older than 10 minutes. Who needs em!
+  if ($data) { return }
+  $_
+ }
 }
 
 function Reset-Pw {
-  process {
-    Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.Name, $_.samid)
-    $pw = (ConvertTo-SecureString $_.pw -AsPlainText -force)
-    try {
-      Set-ADAccountPassword -Identity $_.guid -NewPassword $pw -Reset -Confirm:$false -Whatif:$WhatIf
-    }
-    catch { $_.success = $false }
-    if (!$WhatIf) { Start-Sleep 3 }
-    $_
+ process {
+  Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.Name, $_.samid) -f DarkBlue
+  $pw = (ConvertTo-SecureString $_.pw -AsPlainText -force)
+  try {
+   Set-ADAccountPassword -Identity $_.guid -NewPassword $pw -Reset -Confirm:$false -Whatif:$WhatIf
   }
+  catch { $_.success = $false }
+  if (!$WhatIf) { Start-Sleep 3 }
+  $_
+ }
 }
 
 function Clear-OTPRequest ($params, $table, $baseSql) {
-  process {
-    $sql = $baseSql -f $table, $_.id
-    Write-Verbose ('{0},{1}' -f $MyInvocation.MyCommand.Name, $sql)
-    if ($WhatIf) { return }
-    Invoke-Sqlcmd @params -Query $sql
-  }
+ process {
+  $sql = $baseSql -f $table
+  $sqlVars = "id=$($_.id)"
+  Write-Verbose ('{0},{1}' -f $MyInvocation.MyCommand.Name, $sql, ($sqlVars -join ','))
+  if (!$WhatIf) { New-SqlOperation @params -Query $sql -Parameters $sqlVars }
+ }
 }
 
 # =============================== Main ==================================
-# Imported Functions
-. .\lib\Clear-SessionData.ps1
-# . .\lib\Test-InvalidString.ps1
-. .\lib\Load-Module.ps1
-. .\lib\New-ADSession.ps1
-. .\lib\Select-DomainController.ps1
-. .\lib\Show-TestRun.ps1
 
-Show-TestRun
+# ============================================================================================
+$SaveVerbosePreference = $global:VerbosePreference
+$global:VerbosePreference = 'SilentlyContinue'
+Import-Module -Name CommonScriptFunctions, dbatools
+$global:VerbosePreference = $SaveVerbosePreference
+
+Show-BlockInfo main
+
+if ($WhatIf) { Show-TestRun }
+
 $adCmdLets = 'Get-ADUser', 'Set-ADAccountPassword'
 
-'SqlServer' | Load-Module
-
 $sqlParamsSIS = @{
-  Server                 = $SISServer
-  Database               = $SISDatabase
-  Credential             = $SISCredential
-  TrustServerCertificate = $true
+ Server     = $SISServer
+ Database   = $SISDatabase
+ Credential = $SISCredential
 }
 
 $sqlParamsInt = @{
-  Server                 = $IntSqlServer
-  Database               = $IntSqlDatabase
-  Credential             = $IntSqlCredential
-  TrustServerCertificate = $true
+ Server     = $IntSqlServer
+ Database   = $IntSqlDatabase
+ Credential = $IntSqlCredential
 }
 
 $Global:missingInAD = $null
@@ -267,36 +263,36 @@ $newOTPEntryInt = Get-Content '.\sql\insert-otp.sql' -Raw
 $resetSISOTPRequest = Get-Content -Path '.\sql\reset-otp-request.sql' -Raw
 
 do {
-  # ========== Update Expired OTP Entries by setting del to 1 ========
-  Set-OtpDel $sqlParamsInt $IntSqlTable $delExpiredOTPInt
+ Write-Verbose '========== Update Expired OTP Entries by setting del to 1 ========'
+ Set-OtpDel $sqlParamsInt $IntSqlTable $delExpiredOTPInt
 
-  $dc = Select-DomainController $DomainControllers
-  New-ADSession $dc $ADCredential $adCmdLets
+ Connect-ADSession -DomainControllers $DomainControllers -Cmdlets $adCmdLets -Credential $ADCredential
 
-  # ========================= Send OTP Email =========================
-  Write-Verbose ('{0},DB:{1},Sites:{2}' -f $MyInvocation.MyCommand.Name, $SISDatabase, ($SiteCodes -join ','))
-  Invoke-SqlCmd @sqlParamsSIS -Query ($getSISRequest -f ($SiteCodes -join ',')) |
+ Write-Verbose '# ========================= Send OTP Email ========================='
+ Get-SISPwRequests $sqlParamsSIS $getSISRequest $SiteCodes |
   Format-OtpEmailObj |
-  Get-StuADInfo |
-  Skip-OTP $sqlParamsInt $IntSqlTable $getRecentOtpInt |
-  New-OTP |
-  Get-Usr $sqlParamsSIS $getStaffUsr |
-  Get-Email |
-  Add-OPTEntry $sqlParamsInt $IntSqlTable $newOTPEntryInt |
-  Send-OTPMsg $FormUrl |
-  Reset-DbEntry $sqlParamsSIS $resetSISOTPRequest |
-  Show-Obj
+   Get-StuADInfo |
+    Skip-OTP $sqlParamsInt $IntSqlTable $getRecentOtpInt |
+     New-OTP |
+      Get-Usr $sqlParamsSIS $getStaffUsr |
+       Get-Email |
+        Add-OPTEntry $sqlParamsInt $IntSqlTable $newOTPEntryInt |
+         Send-OTPMsg $FormUrl |
+          Reset-DbEntry $sqlParamsSIS $resetSISOTPRequest |
+           Show-Obj
 
-  # =========================== Reset PW =============================
-  Invoke-SqlCmd @sqlParamsInt -Query ($getPwResets -f $IntSqlTable) |
+ Write-Verbose '# =========================== Reset PW ============================='
+ New-SqlOperation @sqlParamsInt -Query ($getPwResets -f $IntSqlTable) |
   Format-PwResetObj |
-  # Skip-InvalidPw |
-  Get-StuADInfo |
-  Reset-PW |
-  Clear-OTPRequest $sqlParamsInt $IntSqlTable $clearIntEntry |
-  Show-Obj
+   Get-StuADInfo |
+    Reset-PW |
+     Clear-OTPRequest $sqlParamsInt $IntSqlTable $clearIntEntry |
+      Show-Obj
 
-  Clear-SessionData
+ Clear-SessionData
 
-  if (!$WhatIf) { Start-Sleep 5 }
+ if (!$WhatIf) { Start-Sleep 5 }
 } until ($WhatIf -or ((Get-Date) -ge (Get-Date $StopTime)))
+
+if ($WhatIf) { Show-TestRun }
+Show-BlockInfo end
