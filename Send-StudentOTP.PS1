@@ -198,7 +198,7 @@ function Set-OtpDel ($params, $getExpiredSql, $setExpiredSql) {
   Write-Host('{0},{1},{2},{3}' -f $MyInvocation.MyCommand.Name, $req.samid, $req.staffEmail, $req.requestDate ) -f Magenta
  }
  # This 'deletes' entries that are over x minutes old, essentially expiring the OTP/Reset request - Kinda Important!
- Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.Name, $setExpiredSql)
+ Write-Verbose ('{0},{1}' -f $MyInvocation.MyCommand.Name, $setExpiredSql)
  if (!$WhatIf) { New-SqlOperation @params -Query $setExpiredSql }
 }
 
