@@ -35,7 +35,7 @@ param (
  [Alias('wi')]
  [SWITCH]$WhatIf
 )
-function Add-OPTEntry ($params, $table, $baseSql) {
+function Add-OTPEntry ($params, $table, $baseSql) {
  begin {
   $sql = $baseSql -f $table
  }
@@ -93,23 +93,30 @@ function Get-Email {
  }
 }
 
-function Get-Usr ($params, $sql) {
+function Get-Usr ($params, $logSql, $ugnSql) {
  process {
-  $sqlVars = "id=$($_.stuId)"
-  $data = New-SqlOperation @params -Query $sql -Parameters $sqlVars
-  $msg = $MyInvocation.MyCommand.Name, $_.stuId
-  if ($data.usr.length -lt 1) { Write-Host ('{0},{1},No inititor found in LOG.' -f $msg ) -F Red }
-  $_.initiator = $data.usr
+  $logVars = "id=$($_.stuId)"
+  $logData = New-SqlOperation @params -Query $logSql -Parameters $logVars
+  $msg1 = $MyInvocation.MyCommand.Name, $_.stuId
+  if ($logData.usr.length -lt 1) { Write-Host ('{0},{1},No initiator found in LOG.' -f $msg1 ) -F Red }
+
+  $ugnVars = "un=$($logData.USR)"
+  $ugnData = New-SqlOperation @params -Query $ugnSql -Parameters $ugnVars
+  $msg2 = $MyInvocation.MyCommand.Name, $_.stuId
+  if ($ugnData.EM.length -lt 1) { Write-Host ('{0},{1},No email found in UGN table.' -f $msg2 ) -F Red }
+
+  $_.email = $ugnData.EM
   $_
  }
 }
 
 function Get-SISPwRequests ($params, $baseSql, $sites) {
  process {
-  $myValues = '(' + ($sites -join '),(') + ')'
-  $sql = $baseSql -replace ('MY_VALUES', $myValues)
-  Write-Verbose ('{0},DB:{1},Sql: [{2}]' -f $MyInvocation.MyCommand.Name, $SISDatabase, $sql)
-  New-SqlOperation @params -Query $sql
+  # $myValues = '(' + ($sites -join '),(') + ')'
+  # $sql = $baseSql -replace ('MY_VALUES', $myValues)
+  # Write-Verbose ('{0},DB:{1},Sql: [{2}]' -f $MyInvocation.MyCommand.Name, $SISDatabase, $sql)
+  Write-Verbose ('{0},DB:{1},Sql: [{2}]' -f $MyInvocation.MyCommand.Name, $SISDatabase, $baseSql)
+  New-SqlOperation @params -Query $baseSql
  }
 }
 
@@ -120,7 +127,8 @@ function Get-StuADInfo {
   if (!$obj) {
    $global:missingInAD += $_.stuId
    $msg = $MyInvocation.MyCommand.Name, $_.stuId
-   return (Write-Host ('{0},{1},AD Student obj not found' -f $msg ) -F Red)
+   (Write-Host ('{0},{1},AD Student obj not found' -f $msg ) -F Red)
+   return $_
   }
   $_.samid = $obj.SamAccountName
   $_.guid = $obj.ObjectGUID
@@ -158,10 +166,10 @@ function Send-OTPMsg ($url, $mins) {
   }
  }
  process {
-  if ($null -eq $_.email) {
-   $params.to = $AdminEmail
-   $params.subject = 'Error - CUSD Student OTP'
-   $params.Body = $baseErrorHtml -f $_.samid, $_.grade, $_.initiator
+  if (!$_.email -or !$_.samid) {
+   $params.to = $AdminEmail, $_.email
+   $params.subject = '{0} - Error - CUSD Student OTP' -f $_.stuId
+   $params.Body = $baseErrorHtml -f $_.stuId, $_.samid, $_.grade, $_.initiator
   }
   else {
    $params.To = '<{0}>' -f $_.email
@@ -183,10 +191,14 @@ function Send-OTPMsg ($url, $mins) {
 }
 
 function Set-OtpDel ($params, $getExpiredSql, $setExpiredSql) {
+
  $recentRequests = New-SqlOperation @params -Query $getExpiredSql
  if (!$recentRequests) { return }
- Write-Host('{0},{1},[{2}]' -f $MyInvocation.MyCommand.Name, (Get-Date), $recentRequests )
+ foreach ($req in $recentRequests) {
+  Write-Host('{0},{1},{2},{3}' -f $MyInvocation.MyCommand.Name, $req.samid, $req.staffEmail, $req.requestDate ) -f Magenta
+ }
  # This 'deletes' entries that are over x minutes old, essentially expiring the OTP/Reset request - Kinda Important!
+ Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.Name, $setExpiredSql)
  if (!$WhatIf) { New-SqlOperation @params -Query $setExpiredSql }
 }
 
@@ -263,6 +275,7 @@ $intNewOTPEntry = (Get-Content '.\sql\int-insert-otp.sql' -Raw) -f $IntSqlTable
 $intSetExpiredOTP = (Get-Content -Path '.\sql\int-update-expired-otp.sql' -Raw) -f $IntSqlTable, $TimeOutMinutes
 $sisGetRequest = Get-Content -Path '.\sql\sis-get-request.sql' -Raw
 $sisGetStaffUsr = Get-Content -Path '.\sql\sis-get-staff.sql' -Raw
+$sisGetUgnEM = Get-Content -Path '.\sql\sis-get-ugn-em.sql' -Raw
 $sisResetOTPRequest = Get-Content -Path '.\sql\sis-reset-otp-request.sql' -Raw
 
 do {
@@ -277,12 +290,12 @@ do {
    Get-StuADInfo |
     Skip-OTP $sqlParamsInt $IntSqlTable $intGetRecentOtp $TimeOutMinutes |
      New-OTP |
-      Get-Usr $sqlParamsSIS $sisGetStaffUsr |
-       Get-Email |
-        Add-OPTEntry $sqlParamsInt $IntSqlTable $intNewOTPEntry |
-         Send-OTPMsg $FormUrl $TimeOutMinutes |
-          Reset-DbEntry $sqlParamsSIS $sisResetOTPRequest |
-           Show-Obj
+      Get-Usr $sqlParamsSIS $sisGetStaffUsr $sisGetUgnEM |
+       # Get-Email |
+       Add-OTPEntry $sqlParamsInt $IntSqlTable $intNewOTPEntry |
+        Send-OTPMsg $FormUrl $TimeOutMinutes |
+         Reset-DbEntry $sqlParamsSIS $sisResetOTPRequest |
+          Show-Obj
 
  Write-Verbose '# =========================== Reset PW ============================='
  New-SqlOperation @sqlParamsInt -Query $intGetPwResets |
