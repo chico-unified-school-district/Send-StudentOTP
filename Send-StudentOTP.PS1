@@ -112,11 +112,10 @@ function Get-Usr ($params, $logSql, $ugnSql) {
 
 function Get-SISPwRequests ($params, $baseSql, $sites) {
  process {
-  # $myValues = '(' + ($sites -join '),(') + ')'
-  # $sql = $baseSql -replace ('MY_VALUES', $myValues)
-  # Write-Verbose ('{0},DB:{1},Sql: [{2}]' -f $MyInvocation.MyCommand.Name, $SISDatabase, $sql)
-  Write-Verbose ('{0},DB:{1},Sql: [{2}]' -f $MyInvocation.MyCommand.Name, $SISDatabase, $baseSql)
-  New-SqlOperation @params -Query $baseSql
+  $mySiteCodes = $sites -join ','
+  $sql = $baseSql -replace ('SITE_CODES', $mySiteCodes)
+  Write-Verbose ('{0},DB:{1},Sql: [{2}]' -f $MyInvocation.MyCommand.Name, $SISDatabase, $sql)
+  New-SqlOperation @params -Query $sql
  }
 }
 
