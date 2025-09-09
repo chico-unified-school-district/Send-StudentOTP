@@ -50,7 +50,7 @@ function Add-OTPEntry ($params, $table, $baseSql) {
  }
 }
 
-function Format-OtpEmailObj {
+function Format-OTPEmailObj {
  process {
   $obj = '' | Select-Object stuId, stuNum, siteCode, grade, otp,
   initiator, samid, guid, pwExpires, email, error
@@ -59,6 +59,7 @@ function Format-OtpEmailObj {
   $obj.siteCode = $_.sc
   $obj.grade = $_.gr
   $obj
+  Write-Verbose ($MyInvocation.MyCommand.Name, $obj | Out-String)
  }
 }
 
@@ -157,7 +158,6 @@ function Send-OTPMsg ($url, $mins) {
    From       = '<{0}>' -f $EmailCredential.Username
    Subject    = $null
    BodyAsHTML = $True
-   Bcc        = $null
    SMTPServer = 'smtp.office365.com'
    Cred       = $EmailCredential # use a valid Office365 account with Flow rules in place to prevent SPAM warnings.
    UseSSL     = $True
@@ -177,7 +177,7 @@ function Send-OTPMsg ($url, $mins) {
   }
   $msg = $MyInvocation.MyCommand.Name, $params.Subject, ($params.to -join ','), $_.samid, (Get-Date)
   Write-Host ('{0},{1},{2},{3},{4}' -f $msg) -F Blue
-  if ( $Bcc ) { $params.Bcc = $Bcc } # Add Bcc to outgoing email messages.
+  if ( $Bcc ) { $params.Bcc += @{Bcc = $Bcc } }        # Add Bcc to outgoing email messages.
   if (!$WhatIf) {
    try { Send-MailMessage @params } catch {
     $msg = $MyInvocation.MyCommand.Name, $_.samid, $_.siteCode
@@ -209,7 +209,7 @@ function Skip-OTP ($params, $table, $baseSql, $mins) {
   Write-Verbose $sql
   $sqlVars = "id=$($_.stuId)"
   $data = New-SqlOperation @params -Query $sql -Parameters $sqlVars
-  # Skip requests older than 10 minutes. Who needs em!
+  # Skip requests older than x minutes. Who needs em!
   if ($data) { return }
   $_
  }
@@ -220,7 +220,7 @@ function Reset-Pw {
   Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.Name, $_.samid) -f DarkBlue
   $pw = (ConvertTo-SecureString $_.pw -AsPlainText -force)
   try {
-   Set-ADAccountPassword -Identity $_.guid -NewPassword $pw -Reset -Confirm:$false -Whatif:$WhatIf
+   Set-ADAccountPassword -Identity $_.guid -NewPassword $pw -Reset -Confirm:$false -WhatIf:$WhatIf
   }
   catch { $_.success = $false }
   if (!$WhatIf) { Start-Sleep 3 }
@@ -285,7 +285,7 @@ do {
 
  Write-Verbose '# ========================= Send OTP Email ========================='
  Get-SISPwRequests $sqlParamsSIS $sisGetRequest $SiteCodes |
-  Format-OtpEmailObj |
+  Format-OTPEmailObj |
    Get-StuADInfo |
     Skip-OTP $sqlParamsInt $IntSqlTable $intGetRecentOtp $TimeOutMinutes |
      New-OTP |
