@@ -208,7 +208,7 @@ function Clear-OTPRequest ($params, $table, $baseSql) {
 # ============================================================================================
 $global:VerbosePreference = 'SilentlyContinue'
 Import-Module -Name CommonScriptFunctions
-Import-Module -Name dbatools -Cmdlet Set-DbatoolsConfig, Invoke-DbaQuery
+Import-Module -Name dbatools -Cmdlet Set-DbatoolsConfig, Invoke-DbaQuery, Connect-DbaInstance
 Import-Module -Name Mailozaurr -Cmdlet Send-EmailMessage
 
 Show-BlockInfo main
@@ -218,16 +218,11 @@ if ($WhatIf) { Show-TestRun }
 
 $adCmdLets = 'Get-ADUser', 'Set-ADAccountPassword'
 
-$sqlParamsSIS = @{
- Server     = $SISServer
- Database   = $SISDatabase
- Credential = $SISCredential
+$dbaInstanceSiS = @{
+ Server = Connect-DbaInstance -SqlInstance $SISServer -SqlCredential $SISCredential -Database $SISDatabase
 }
-
-$sqlParamsInt = @{
- Server     = $IntSqlServer
- Database   = $IntSqlDatabase
- Credential = $IntSqlCredential
+$dbaInstanceInt = @{
+ Server = Connect-DbaInstance -SqlInstance $IntSqlServer -SqlCredential $IntSqlCredential -Database $IntSqlDatabase
 }
 
 $Global:missingInAD = $null
@@ -245,28 +240,28 @@ $sisResetOTPRequest = Get-Content -Path '.\sql\sis-reset-otp-request.sql' -Raw
 
 do {
  Write-Verbose '========== Update Expired OTP Entries by setting del to 1 ========'
- Set-OtpDel $sqlParamsInt $intGetExpiredOTP $intSetExpiredOTP
+ Set-OtpDel $dbaInstanceInt $intGetExpiredOTP $intSetExpiredOTP
 
  Connect-ADSession -DomainControllers $DomainControllers -Cmdlets $adCmdLets -Credential $ADCredential
 
  Write-Verbose '# ========================= Send OTP Email ========================='
- Get-SISPwRequests $sqlParamsSIS $sisGetRequest $SiteCodes |
+ Get-SISPwRequests $dbaInstanceSiS $sisGetRequest $SiteCodes |
   Format-OTPEmailObj |
    Get-StuADInfo |
-    Skip-OTP $sqlParamsInt $IntSqlTable $intGetRecentOtp $TimeOutMinutes |
+    Skip-OTP $dbaInstanceInt $IntSqlTable $intGetRecentOtp $TimeOutMinutes |
      New-OTP |
-      Get-Usr $sqlParamsSIS $sisGetStaffUsr $sisGetUgnEM |
-       Add-OTPEntry $sqlParamsInt $IntSqlTable $intNewOTPEntry |
+      Get-Usr $dbaInstanceSiS $sisGetStaffUsr $sisGetUgnEM |
+       Add-OTPEntry $dbaInstanceInt $IntSqlTable $intNewOTPEntry |
         Send-OTPMsg $FormUrl $TimeOutMinutes |
-         Reset-DbEntry $sqlParamsSIS $sisResetOTPRequest |
+         Reset-DbEntry $dbaInstanceSiS $sisResetOTPRequest |
           Show-Obj
 
  Write-Verbose '# =========================== Reset PW ============================='
- New-SqlOperation @sqlParamsInt -Query $intGetPwResets |
+ New-SqlOperation @dbaInstanceInt -Query $intGetPwResets |
   Format-PwResetObj |
    Get-StuADInfo |
     Reset-PW |
-     Clear-OTPRequest $sqlParamsInt $IntSqlTable $intClearEntry |
+     Clear-OTPRequest $dbaInstanceInt $IntSqlTable $intClearEntry |
       Show-Obj
 
  Clear-SessionData
