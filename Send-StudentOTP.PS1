@@ -1,39 +1,22 @@
 ﻿[cmdletbinding()]
 param (
- [Parameter(Mandatory = $True)]
- [Alias('DCs')]
- [string[]]$DomainControllers,
- [Parameter(Mandatory = $True)]
- [System.Management.Automation.PSCredential]$ADCredential,
- [Parameter(Mandatory = $True)]
- [string]$SISServer,
- [Parameter(Mandatory = $True)]
- [string]$SISDatabase,
- [Parameter(Mandatory = $True)]
- [System.Management.Automation.PSCredential]$SISCredential,
- [Parameter(Mandatory = $True)]
- [int[]]$SiteCodes,
- [Parameter(Mandatory = $True)]
- [string]$IntSqlServer,
- [Parameter(Mandatory = $True)]
- [string]$IntSqlDatabase,
- [Parameter(Mandatory = $True)]
- [System.Management.Automation.PSCredential]$IntSqlCredential,
- [Parameter(Mandatory = $True)]
- [string]$IntSqlTable,
- [Parameter(Mandatory = $True)]
- [int]$TimeOutMinutes,
- [Parameter(Mandatory = $True)]
- [System.Management.Automation.PSCredential]$EmailCredential,
- [Parameter(Mandatory = $false)]
- [string[]]$Bcc,
- [Parameter(Mandatory = $true)]
- [string[]]$AdminEmail,
- [Parameter(Mandatory = $True)]
- [string]$FormUrl,
- [string]$StopTime = "11:00 PM",
- [Alias('wi')]
- [SWITCH]$WhatIf
+ [Parameter(Mandatory = $True)][Alias('DCs')][string[]]$DomainControllers,
+ [Parameter(Mandatory = $True)][System.Management.Automation.PSCredential]$ADCredential,
+ [Parameter(Mandatory = $True)] [string]$SISServer,
+ [Parameter(Mandatory = $True)][string]$SISDatabase,
+ [Parameter(Mandatory = $True)][System.Management.Automation.PSCredential]$SISCredential,
+ [Parameter(Mandatory = $True)][int[]]$SiteCodes,
+ [Parameter(Mandatory = $True)][string]$IntSqlServer,
+ [Parameter(Mandatory = $True)][string]$IntSqlDatabase,
+ [Parameter(Mandatory = $True)][System.Management.Automation.PSCredential]$IntSqlCredential,
+ [Parameter(Mandatory = $True)][string]$IntSqlTable,
+ [Parameter(Mandatory = $True)][int]$TimeOutMinutes,
+ [Parameter(Mandatory = $True)][System.Management.Automation.PSCredential]$EmailCredential,
+ [Parameter(Mandatory = $false)][string[]]$Bcc,
+ [Parameter(Mandatory = $true)][string[]]$AdminEmail,
+ [Parameter(Mandatory = $True)][string]$FormUrl,
+ [string]$StopTime = '11:00 PM',
+ [Alias('wi')][SWITCH]$WhatIf
 )
 function Add-OTPEntry ($params, $table, $baseSql) {
  begin {
@@ -81,19 +64,6 @@ function Format-PwResetObj {
  }
 }
 
-function Get-Email {
- process {
-  if ($_.initiator.length -lt 1) { return $_ }
-  $obj = Get-ADuser -Filter ("SamAccountName -eq '{0}'" -f $_.initiator) -Properties Mail
-  if (!$obj) {
-   $msg = $MyInvocation.MyCommand.Name, $_.samid, $_.initiator
-   Write-Host ('{0},{1},{2},AD Staff obj not found' -f $msg) -F Red
-  }
-  $_.email = $obj.Mail
-  $_
- }
-}
-
 function Get-Usr ($params, $logSql, $ugnSql) {
  process {
   $logVars = "id=$($_.stuId)"
@@ -123,7 +93,7 @@ function Get-SISPwRequests ($params, $baseSql, $sites) {
 function Get-StuADInfo {
  process {
   if ($global:missingInAD -contains $_.stuId) { return }
-  $obj = Get-ADuser -Filter ("EmployeeId -eq '{0}'" -f $_.stuId)
+  $obj = Get-ADUser -Filter ("EmployeeId -eq '{0}'" -f $_.stuId)
   if (!$obj) {
    $global:missingInAD += $_.stuId
    $msg = $MyInvocation.MyCommand.Name, $_.stuId
@@ -157,11 +127,12 @@ function Send-OTPMsg ($url, $mins) {
   $params = @{
    From       = '<{0}>' -f $EmailCredential.Username
    Subject    = $null
-   BodyAsHTML = $True
+   Html       = $null
    SMTPServer = 'smtp.office365.com'
    Cred       = $EmailCredential # use a valid Office365 account with Flow rules in place to prevent SPAM warnings.
    UseSSL     = $True
    Port       = 587
+   WhatIf     = $WhatIf
   }
  }
  process {
@@ -173,18 +144,13 @@ function Send-OTPMsg ($url, $mins) {
   else {
    $params.To = '<{0}>' -f $_.email
    $params.subject = '{0} - CUSD Student OTP' -f $_.samid
-   $params.Body = $baseHtml -f $_.samid, $_.otp, $url, $_.grade, $mins
+   $params.Html = $baseHtml -f $_.samid, $_.otp, $url, $_.grade, $mins
   }
   $msg = $MyInvocation.MyCommand.Name, $params.Subject, ($params.to -join ','), $_.samid, (Get-Date)
   Write-Host ('{0},{1},{2},{3},{4}' -f $msg) -F Blue
   if ( $Bcc ) { $params.Bcc += @{Bcc = $Bcc } }        # Add Bcc to outgoing email messages.
-  if (!$WhatIf) {
-   try { Send-MailMessage @params } catch {
-    $msg = $MyInvocation.MyCommand.Name, $_.samid, $_.siteCode
-    Write-Host ('{0},{1},{2},Message did not send. Skipping' -f $msg) -F red
-   }
-  }
-  Write-Verbose ($params.body | out-string)
+  Write-Verbose ($params.body | Out-String)
+  Send-EmailMessage @params
   $_
  }
 }
@@ -201,7 +167,7 @@ function Set-OtpDel ($params, $getExpiredSql, $setExpiredSql) {
  if (!$WhatIf) { New-SqlOperation @params -Query $setExpiredSql }
 }
 
-function Show-Obj { Process { Write-Verbose ($MyInvocation.MyCommand.Name, $_ | Out-String) } }
+function Show-Obj { process { Write-Verbose ($MyInvocation.MyCommand.Name, $_ | Out-String) } }
 
 function Skip-OTP ($params, $table, $baseSql, $mins) {
  process {
@@ -218,7 +184,7 @@ function Skip-OTP ($params, $table, $baseSql, $mins) {
 function Reset-Pw {
  process {
   Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.Name, $_.samid) -f DarkBlue
-  $pw = (ConvertTo-SecureString $_.pw -AsPlainText -force)
+  $pw = (ConvertTo-SecureString $_.pw -AsPlainText -Force)
   try {
    Set-ADAccountPassword -Identity $_.guid -NewPassword $pw -Reset -Confirm:$false -WhatIf:$WhatIf
   }
@@ -240,10 +206,10 @@ function Clear-OTPRequest ($params, $table, $baseSql) {
 # =============================== Main ==================================
 
 # ============================================================================================
-$SaveVerbosePreference = $global:VerbosePreference
 $global:VerbosePreference = 'SilentlyContinue'
-Import-Module -Name CommonScriptFunctions, dbatools
-$global:VerbosePreference = $SaveVerbosePreference
+Import-Module -Name CommonScriptFunctions
+Import-Module -Name dbatools -Cmdlet Set-DbatoolsConfig, Invoke-DbaQuery
+Import-Module -Name Mailozaurr -Cmdlet Send-EmailMessage
 
 Show-BlockInfo main
 Show-BlockInfo $SISDatabase
@@ -290,7 +256,6 @@ do {
     Skip-OTP $sqlParamsInt $IntSqlTable $intGetRecentOtp $TimeOutMinutes |
      New-OTP |
       Get-Usr $sqlParamsSIS $sisGetStaffUsr $sisGetUgnEM |
-       # Get-Email |
        Add-OTPEntry $sqlParamsInt $IntSqlTable $intNewOTPEntry |
         Send-OTPMsg $FormUrl $TimeOutMinutes |
          Reset-DbEntry $sqlParamsSIS $sisResetOTPRequest |
