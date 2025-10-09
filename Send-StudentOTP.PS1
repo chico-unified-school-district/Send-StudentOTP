@@ -148,8 +148,8 @@ function Send-OTPMsg ($url, $mins) {
   }
   $msg = $MyInvocation.MyCommand.Name, $params.Subject, ($params.to -join ','), $_.samid, (Get-Date)
   Write-Host ('{0},{1},{2},{3},{4}' -f $msg) -F Blue
-  if ( $Bcc ) { $params.Bcc += @{Bcc = $Bcc } }        # Add Bcc to outgoing email messages.
-  Write-Verbose ($params.body | Out-String)
+  if ( $Bcc ) { $params.Bcc = $Bcc }    # Add Bcc to outgoing email messages.
+  Write-Verbose ('{0},{1}' -f $MyInvocation.MyCommand.Name, ($params.body | Out-String))
   Send-EmailMessage @params
   $_
  }
@@ -207,7 +207,7 @@ function Clear-OTPRequest ($params, $table, $baseSql) {
 
 # ============================================================================================
 $global:VerbosePreference = 'SilentlyContinue'
-Import-Module -Name CommonScriptFunctions
+Import-Module -Name CommonScriptFunctions -Cmdlet Show-TestRun, Show-BlockInfo, Connect-ADSession, Clear-SessionData, New-SqlOperation
 Import-Module -Name dbatools -Cmdlet Set-DbatoolsConfig, Invoke-DbaQuery, Connect-DbaInstance
 Import-Module -Name Mailozaurr -Cmdlet Send-EmailMessage
 
