@@ -36,13 +36,14 @@ function Add-OTPEntry ($params, $table, $baseSql) {
 function Format-OTPEmailObj {
  process {
   $obj = '' | Select-Object stuId, stuNum, siteCode, grade, otp,
-  initiator, samid, guid, pwExpires, email, error
+  initiator, samid, guid, pwExpires, email, emailParams, error
   $obj.stuId = $_.id
   $obj.stuNum = $_.sn
   $obj.siteCode = $_.sc
   $obj.grade = $_.gr
-  $obj
+  $obj.emailParams = @{To = $null; Subject = $null; HTML = $null }
   Write-Verbose ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $obj | Out-String)
+  $obj
  }
 }
 
@@ -94,10 +95,9 @@ function Get-StuADInfo {
  process {
   if ($global:missingInAD -contains $_.stuId) { return }
   $obj = Get-ADUser -Filter ("EmployeeId -eq '{0}'" -f $_.stuId)
-  if (!$obj) {
+  if (!$obj -or $obj.Enabled -eq $false) {
    $global:missingInAD += $_.stuId
-   $msg = $MyInvocation.MyCommand.Name, $_.stuId
-   Write-Host '{0},{1},AD Student obj not found' -f $msg -F Red
+   Write-Host ('{0},{1},AD Student obj not found or disabled' -f $MyInvocation.MyCommand.Name, $_.stuId) -F Red
    return $_
   }
   $_.samid = $obj.SamAccountName
@@ -107,8 +107,11 @@ function Get-StuADInfo {
 }
 
 function New-OTP {
- begin { function New-RandomOTP { Get-Random -Min 111111 -max 999999 } }
- process { $_.otp = (New-RandomOTP); $_ }
+ process {
+  $_.otp = Get-Random -Min 111111 -max 999999
+  Write-Verbose ('{0},{1},OTP:{2}' -f $MyInvocation.MyCommand.Name, $_.samid, $_.otp)
+  $_
+ }
 }
 
 function Reset-DbEntry ($params, $sql) {
@@ -120,35 +123,48 @@ function Reset-DbEntry ($params, $sql) {
  }
 }
 
-function Send-OTPMsg ($url, $mins) {
+function Send-OTPMsg ($mins) {
  begin {
-  $baseHtml = Get-Content '.\html\otp-msg.html' -Raw
-  $baseErrorHtml = Get-Content '.\html\otp-error-msg.html' -Raw
   $params = @{
-   From       = '<{0}>' -f $EmailCredential.Usernamec
+   From       = '{0}' -f $EmailCredential.Username
    SMTPServer = 'smtp.office365.com'
    Cred       = $EmailCredential # use a valid Office365 account with Flow rules in place to prevent SPAM warnings.
    UseSSL     = $True
    Port       = 587
    WhatIf     = $WhatIf
+   Suppress   = $True
   }
  }
  process {
-  if (!$_.email -or !$_.samid) {
-   $params.to = $AdminEmail, $_.email
-   $params.subject = '{0} - Error - CUSD Student OTP' -f $_.stuId
-   $params.HTML = $baseErrorHtml -f $_.stuId, $_.samid, $_.grade, $_.initiator
+  $params.To = $_.emailParams.To
+  $params.Subject = $_.emailParams.Subject
+  $params.HTML = $_.emailParams.HTML
+  Write-Host ('{0},{1},{2},{3}' -f $MyInvocation.MyCommand.Name, $params.Subject, $_.stuId, (Get-Date)) -F Blue
+  Write-Host ($params.To | Out-String ) -F Blue
+  if ( $Bcc ) { $params.Bcc = $Bcc } # Add Bcc to outgoing email messages.
+  # Write-Verbose ('{0},{1}' -f $MyInvocation.MyCommand.Name, ($params.HTML | Out-String))
+  Send-EmailMessage @params
+  $_
+ }
+}
+
+function Set-OTPEmailMsgData ($adminAddresses, $resetPageURL, $baseOtpHtml, $baseErrorStuHtml, $baseErrorStaffHtml) {
+ process {
+  if (!$_.samid) {
+   $_.emailParams.To = $adminAddresses, $_.email | Sort-Object -Unique
+   $_.emailParams.Subject = '{0} - Error - CUSD Student OTP' -f $_.stuId
+   $_.emailParams.HTML = $baseErrorStuHtml -f $_.stuId, $_.grade, $_.initiator
+  }
+  elseif (!$_.email) {
+   $_.emailParams.To = $adminAddresses
+   $_.emailParams.Subject = '{0} - Error No Staff Email Found - CUSD Student OTP' -f $_.stuId
+   $_.emailParams.HTML = $baseErrorStaffHtml -f $_.stuId, $_.samid, $_.grade
   }
   else {
-   $params.To = '<{0}>' -f $_.email
-   $params.subject = '{0} - CUSD Student OTP' -f $_.samid
-   $params.HTML = $baseHtml -f $_.samid, $_.otp, $url, $_.grade, $mins
+   $_.emailParams.To = '<{0}>' -f $_.email
+   $_.emailParams.Subject = '{0} - CUSD Student OTP' -f $_.samid
+   $_.emailParams.HTML = $baseOtpHtml -f $_.samid, $_.otp, $resetPageURL, $_.grade, $mins
   }
-  $msg = $MyInvocation.MyCommand.Name, $params.Subject, ($params.to -join ','), $_.samid, (Get-Date)
-  Write-Host ('{0},{1},{2},{3},{4}' -f $msg) -F Blue
-  if ( $Bcc ) { $params.Bcc = $Bcc }    # Add Bcc to outgoing email messages.
-  Write-Verbose ('{0},{1}' -f $MyInvocation.MyCommand.Name, ($params.HTML | Out-String))
-  Send-EmailMessage @params
   $_
  }
 }
@@ -158,7 +174,7 @@ function Set-OtpDel ($params, $getExpiredSql, $setExpiredSql) {
  $recentRequests = New-SqlOperation @params -Query $getExpiredSql
  if (!$recentRequests) { return }
  foreach ($req in $recentRequests) {
-  Write-Host('{0},{1},{2},{3}' -f $MyInvocation.MyCommand.Name, $req.samid, $req.staffEmail, $req.requestDate ) -f Magenta
+  Write-Host('{0},{1},{2},{3}' -f $MyInvocation.MyCommand.Name, $req.permId, $req.staffEmail, $req.requestDate ) -f Magenta
  }
  # This 'deletes' entries that are over x minutes old, essentially expiring the OTP/Reset request - Kinda Important!
  Write-Verbose ('{0},{1}' -f $MyInvocation.MyCommand.Name, $setExpiredSql)
@@ -211,6 +227,7 @@ Import-Module -Name Mailozaurr -Cmdlet Send-EmailMessage
 
 Show-BlockInfo main
 Show-BlockInfo $SISDatabase
+Show-BlockInfo $IntSqlTable
 
 if ($WhatIf) { Show-TestRun }
 
@@ -222,6 +239,10 @@ $dbaInstanceSiS = @{
 $dbaInstanceInt = @{
  Server = Connect-DbaInstance -SqlInstance $IntSqlServer -SqlCredential $IntSqlCredential -Database $IntSqlDatabase
 }
+
+$otpHtml = Get-Content '.\html\otp-msg.html' -Raw
+$studentErrorHtml = Get-Content '.\html\student-missing-msg.html' -Raw
+$staffErrorHtml = Get-Content '.\html\staff-email-missing-msg.html' -Raw
 
 $Global:missingInAD = $null
 
@@ -250,9 +271,10 @@ do {
      New-OTP |
       Get-Usr $dbaInstanceSiS $sisGetStaffUsr $sisGetUgnEM |
        Add-OTPEntry $dbaInstanceInt $IntSqlTable $intNewOTPEntry |
-        Send-OTPMsg $FormUrl $TimeOutMinutes |
-         Reset-DbEntry $dbaInstanceSiS $sisResetOTPRequest |
-          Show-Obj
+        Set-OTPEmailMsgData $AdminEmail $FormUrl $otpHtml $studentErrorHtml $staffErrorHtml |
+         Send-OTPMsg $TimeOutMinutes |
+          Reset-DbEntry $dbaInstanceSiS $sisResetOTPRequest |
+           Show-Obj
 
  Write-Verbose '# =========================== Reset PW ============================='
  New-SqlOperation @dbaInstanceInt -Query $intGetPwResets |
