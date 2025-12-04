@@ -42,7 +42,7 @@ function Format-OTPEmailObj {
   $obj.siteCode = $_.sc
   $obj.grade = $_.gr
   $obj
-  Write-Verbose ($MyInvocation.MyCommand.Name, $obj | Out-String)
+  Write-Verbose ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $obj | Out-String)
  }
 }
 
@@ -97,7 +97,7 @@ function Get-StuADInfo {
   if (!$obj) {
    $global:missingInAD += $_.stuId
    $msg = $MyInvocation.MyCommand.Name, $_.stuId
-   (Write-Host ('{0},{1},AD Student obj not found' -f $msg ) -F Red)
+   Write-Host '{0},{1},AD Student obj not found' -f $msg -F Red
    return $_
   }
   $_.samid = $obj.SamAccountName
@@ -115,7 +115,7 @@ function Reset-DbEntry ($params, $sql) {
  process {
   $sqlVars = "sc=$($_.siteCode)", "sn=$($_.stuNum)"
   if (!$WhatIf) { New-SqlOperation @params -Query $sql -Parameters $sqlVars }
-  Write-Verbose ('{0},{1}' -f $MyInvocation.MyCommand.Name, $sql, ($sqlVars -join ','))
+  Write-Verbose ('{0},{1},{2}' -f $MyInvocation.MyCommand.Name, $sql, ($sqlVars -join ','))
   $_
  }
 }
@@ -125,9 +125,7 @@ function Send-OTPMsg ($url, $mins) {
   $baseHtml = Get-Content '.\html\otp-msg.html' -Raw
   $baseErrorHtml = Get-Content '.\html\otp-error-msg.html' -Raw
   $params = @{
-   From       = '<{0}>' -f $EmailCredential.Username
-   Subject    = $null
-   Html       = $null
+   From       = '<{0}>' -f $EmailCredential.Usernamec
    SMTPServer = 'smtp.office365.com'
    Cred       = $EmailCredential # use a valid Office365 account with Flow rules in place to prevent SPAM warnings.
    UseSSL     = $True
@@ -139,17 +137,17 @@ function Send-OTPMsg ($url, $mins) {
   if (!$_.email -or !$_.samid) {
    $params.to = $AdminEmail, $_.email
    $params.subject = '{0} - Error - CUSD Student OTP' -f $_.stuId
-   $params.Body = $baseErrorHtml -f $_.stuId, $_.samid, $_.grade, $_.initiator
+   $params.HTML = $baseErrorHtml -f $_.stuId, $_.samid, $_.grade, $_.initiator
   }
   else {
    $params.To = '<{0}>' -f $_.email
    $params.subject = '{0} - CUSD Student OTP' -f $_.samid
-   $params.Html = $baseHtml -f $_.samid, $_.otp, $url, $_.grade, $mins
+   $params.HTML = $baseHtml -f $_.samid, $_.otp, $url, $_.grade, $mins
   }
   $msg = $MyInvocation.MyCommand.Name, $params.Subject, ($params.to -join ','), $_.samid, (Get-Date)
   Write-Host ('{0},{1},{2},{3},{4}' -f $msg) -F Blue
   if ( $Bcc ) { $params.Bcc = $Bcc }    # Add Bcc to outgoing email messages.
-  Write-Verbose ('{0},{1}' -f $MyInvocation.MyCommand.Name, ($params.body | Out-String))
+  Write-Verbose ('{0},{1}' -f $MyInvocation.MyCommand.Name, ($params.HTML | Out-String))
   Send-EmailMessage @params
   $_
  }
@@ -167,7 +165,7 @@ function Set-OtpDel ($params, $getExpiredSql, $setExpiredSql) {
  if (!$WhatIf) { New-SqlOperation @params -Query $setExpiredSql }
 }
 
-function Show-Obj { process { Write-Verbose ($MyInvocation.MyCommand.Name, $_ | Out-String) } }
+function Show-Obj { process { Write-Verbose ( '{0},[{1}]' -f $MyInvocation.MyCommand.Name, ($_ | Out-String)) } }
 
 function Skip-OTP ($params, $table, $baseSql, $mins) {
  process {
