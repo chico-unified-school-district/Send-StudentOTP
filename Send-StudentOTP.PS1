@@ -292,9 +292,9 @@ do {
      Clear-OTPRequest $dbaInstanceInt $IntSqlTable $intClearEntry |
       Show-Obj
 
-
- if (!$WhatIf) { Start-Sleep 5 }
-} until ($WhatIf -or ((Get-Date) -ge (Get-Date $StopTime)))
+ if ($WhatIf) { break }
+ Start-Sleep 5
+} until ((Get-Date) -ge (Get-Date $StopTime))
 
 if ($WhatIf) { Show-TestRun }
 Show-BlockInfo end
