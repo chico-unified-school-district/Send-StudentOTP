@@ -140,6 +140,7 @@ function Send-OTPMsg ($mins) {
   $params.Subject = $_.emailParams.Subject
   $params.HTML = $_.emailParams.HTML
   Write-Host ('{0},{1},{2},{3}' -f $MyInvocation.MyCommand.Name, $params.Subject, $_.stuId, (Get-Date)) -F Blue
+  # TODO : Debug output of email addresses. The AdminEmail array seems to not be working correctly.
   Write-Host ($params.To | Out-String ) -F Blue
   if ( $Bcc ) { $params.Bcc = $Bcc } # Add Bcc to outgoing email messages.
   # Write-Verbose ('{0},{1}' -f $MyInvocation.MyCommand.Name, ($params.HTML | Out-String))
@@ -198,11 +199,20 @@ function Skip-OTP ($params, $table, $baseSql, $mins) {
 function Reset-Pw {
  process {
   Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.Name, $_.samid) -f DarkBlue
-  $pw = (ConvertTo-SecureString $_.pw -AsPlainText -Force)
-  try {
-   Set-ADAccountPassword -Identity $_.guid -NewPassword $pw -Reset -Confirm:$false -WhatIf:$WhatIf
+  $params = @{
+   Identity      = $_.guid
+   NewPassword   = (ConvertTo-SecureString $_.pw -AsPlainText -Force)
+   Reset         = $true
+   ErrorVariable = 'pwResetError'
+   Confirm       = $false
+   WhatIf        = $WhatIf
   }
-  catch { $_.success = $false }
+  Set-ADAccountPassword @params
+  if ($pwResetError) {
+   Write-Warning ('{0},{1},Error:{2}' -f $MyInvocation.MyCommand.Name, $_.samid, $pwResetError.Exception.Message)
+   $_.success = $false
+   $_.pwGood = $pwResetError.Message
+  }
   if (!$WhatIf) { Start-Sleep 3 }
   $_
  }
