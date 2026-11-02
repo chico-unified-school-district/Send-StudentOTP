@@ -13,7 +13,7 @@ Why this matters: the script treats SQL snippets as templates (string -f) and ex
 
 ## Inputs / outputs / side effects
 
-- Inputs: CLI params or environment-driven `params.ps1`/Jenkins envvars: DomainControllers, AD credentials, SIS server/database/credentials, Int SQL server/database/credentials, IntSqlTable, SiteCodes, TimeOutMinutes, EmailCredential, FormUrl, StopTime, WhatIf/Verbose flags.
+- Inputs: CLI params or environment-driven `params.ps1`/Jenkins envvars: AD credentials, SIS server/database/credentials, Int SQL server/database/credentials, IntSqlTable, SiteCodes, TimeOutMinutes, EmailCredential, FormUrl, StopTime, WhatIf/Verbose flags.
 - Outputs/Side effects: sends email via Office365 (uses Mailozaurr Send-EmailMessage), writes rows to internal table (`int-insert-otp.sql`), updates/clears entries (`int-update-expired-otp.sql`, `int-clear-entry.sql`), and calls AD cmdlets (Get-ADUser, Set-ADAccountPassword).
 
 ## Project-specific conventions & patterns

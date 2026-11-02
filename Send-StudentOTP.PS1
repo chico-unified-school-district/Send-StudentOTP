@@ -1,6 +1,5 @@
 ﻿[cmdletbinding()]
 param (
- [Parameter(Mandatory = $True)][Alias('DCs')][string[]]$DomainControllers,
  [Parameter(Mandatory = $True)][System.Management.Automation.PSCredential]$ADCredential,
  [Parameter(Mandatory = $True)] [string]$SISServer,
  [Parameter(Mandatory = $True)][string]$SISDatabase,
@@ -91,10 +90,10 @@ function Get-SISPwRequests ($params, $baseSql, $sites) {
  }
 }
 
-function Get-StuADInfo {
+function Get-StuADInfo ([pscredential]$cred) {
  process {
   if ($global:missingInAD -contains $_.stuId) { return }
-  $obj = Get-ADUser -Filter ("EmployeeId -eq '{0}'" -f $_.stuId)
+  $obj = Get-ADUser -Filter ("EmployeeId -eq '{0}'" -f $_.stuId) -Credential $cred
   if (!$obj -or $obj.Enabled -eq $false) {
    $global:missingInAD += $_.stuId
    Write-Host ('{0},{1},AD Student obj not found or disabled' -f $MyInvocation.MyCommand.Name, $_.stuId) -F Red
@@ -196,11 +195,12 @@ function Skip-OTP ($params, $table, $baseSql, $mins) {
  }
 }
 
-function Reset-Pw {
+function Reset-Pw ([pscredential]$cred) {
  process {
   Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.Name, $_.samid) -f DarkBlue
   $params = @{
    Identity      = $_.guid
+   Credential    = $cred
    NewPassword   = (ConvertTo-SecureString $_.pw -AsPlainText -Force)
    Reset         = $true
    ErrorVariable = 'pwResetError'
@@ -231,7 +231,8 @@ function Clear-OTPRequest ($params, $table, $baseSql) {
 
 # ============================================================================================
 $global:VerbosePreference = 'SilentlyContinue'
-Import-Module -Name CommonScriptFunctions -Cmdlet Show-TestRun, Show-BlockInfo, Connect-ADSession, Clear-SessionData, New-SqlOperation
+Import-Module -Name CommonScriptFunctions -Cmdlet Show-TestRun, Show-BlockInfo, New-SqlOperation
+Import-Module -Name ActiveDirectory -Cmdlet Get-ADUser, Set-ADAccountPassword -WarningAction SilentlyContinue -ErrorAction Stop
 Import-Module -Name dbatools -Cmdlet Set-DbatoolsConfig, Invoke-DbaQuery, Connect-DbaInstance
 Import-Module -Name Mailozaurr -Cmdlet Send-EmailMessage
 
@@ -240,8 +241,6 @@ Show-BlockInfo $SISDatabase
 Show-BlockInfo $IntSqlTable
 
 if ($WhatIf) { Show-TestRun }
-
-$adCmdLets = 'Get-ADUser', 'Set-ADAccountPassword'
 
 $dbaInstanceSiS = @{
  Server = Connect-DbaInstance -SqlInstance $SISServer -SqlCredential $SISCredential -Database $SISDatabase
@@ -271,12 +270,11 @@ do {
  Write-Verbose '========== Update Expired OTP Entries by setting del to 1 ========'
  Set-OtpDel $dbaInstanceInt $intGetExpiredOTP $intSetExpiredOTP
 
- Connect-ADSession -DomainControllers $DomainControllers -Cmdlets $adCmdLets -Credential $ADCredential
 
  Write-Verbose '# ========================= Send OTP Email ========================='
  Get-SISPwRequests $dbaInstanceSiS $sisGetRequest $SiteCodes |
   Format-OTPEmailObj |
-   Get-StuADInfo |
+   Get-StuADInfo $ADCredential |
     Skip-OTP $dbaInstanceInt $IntSqlTable $intGetRecentOtp $TimeOutMinutes |
      New-OTP |
       Get-Usr $dbaInstanceSiS $sisGetStaffUsr $sisGetUgnEM |
@@ -289,12 +287,11 @@ do {
  Write-Verbose '# =========================== Reset PW ============================='
  New-SqlOperation @dbaInstanceInt -Query $intGetPwResets |
   Format-PwResetObj |
-   Get-StuADInfo |
-    Reset-PW |
+   Get-StuADInfo $ADCredential |
+    Reset-PW $ADCredential |
      Clear-OTPRequest $dbaInstanceInt $IntSqlTable $intClearEntry |
       Show-Obj
 
- Clear-SessionData
 
  if (!$WhatIf) { Start-Sleep 5 }
 } until ($WhatIf -or ((Get-Date) -ge (Get-Date $StopTime)))

@@ -69,7 +69,7 @@ Get-SISPwRequests |
 
 - **`Get-SISPwRequests`** — Queries SIS for requests with `ADPW = 'Y'`
 - **`Format-OTPEmailObj`** — Creates pipeline object with required properties
-- **`Get-StuADInfo`** — Looks up student AD account and GUID
+- **`Get-StuADInfo`** — Looks up student AD account and GUID (takes `[pscredential]$cred`, passed as `-Credential` to `Get-ADUser`)
 - **`Skip-OTP`** — Filters out duplicate requests within timeout window
 - **`New-OTP`** — Generates random 6-digit OTP
 - **`Get-Usr`** — Retrieves staff initiator and email from SIS
@@ -77,30 +77,29 @@ Get-SISPwRequests |
 - **`Set-OTPEmailMsgData`** — Formats email (success or error template)
 - **`Send-OTPMsg`** — Sends email via Office365 SMTP
 - **`Reset-DbEntry`** — Clears SIS request flag
-- **`Reset-Pw`** — Applies password change to AD account
+- **`Reset-Pw`** — Applies password change to AD account (takes `[pscredential]$cred`, passed as `-Credential` to `Set-ADAccountPassword`)
 - **`Clear-OTPRequest`** — Marks internal entry as processed
 
 ## Parameters
 
-| Parameter           | Type         | Description                                   |
-| ------------------- | ------------ | --------------------------------------------- |
-| `DomainControllers` | string[]     | AD domain controller list                     |
-| `ADCredential`      | PSCredential | AD service account                            |
-| `SISServer`         | string       | SIS database server                           |
-| `SISDatabase`       | string       | SIS database name                             |
-| `SISCredential`     | PSCredential | SIS database credential                       |
-| `SiteCodes`         | int[]        | School site codes to monitor                  |
-| `IntSqlServer`      | string       | Internal lookup database server               |
-| `IntSqlDatabase`    | string       | Internal database name                        |
-| `IntSqlCredential`  | PSCredential | Internal database credential                  |
-| `IntSqlTable`       | string       | Tracking table name (e.g., `student_otp`)     |
-| `TimeOutMinutes`    | int          | OTP expiration timeout (default: 20)          |
-| `EmailCredential`   | PSCredential | Office365 SMTP account                        |
-| `AdminEmail`        | string[]     | Admin email(s) for error notifications        |
-| `Bcc`               | string[]     | Optional BCC recipients                       |
-| `FormUrl`           | string       | Password reset web form URL                   |
-| `StopTime`          | string       | Time to stop processing (default: "11:00 PM") |
-| `WhatIf`            | switch       | Test mode (no external changes)               |
+| Parameter          | Type         | Description                                   |
+| ------------------ | ------------ | --------------------------------------------- |
+| `ADCredential`     | PSCredential | AD service account (passed to AD functions)   |
+| `SISServer`        | string       | SIS database server                           |
+| `SISDatabase`      | string       | SIS database name                             |
+| `SISCredential`    | PSCredential | SIS database credential                       |
+| `SiteCodes`        | int[]        | School site codes to monitor                  |
+| `IntSqlServer`     | string       | Internal lookup database server               |
+| `IntSqlDatabase`   | string       | Internal database name                        |
+| `IntSqlCredential` | PSCredential | Internal database credential                  |
+| `IntSqlTable`      | string       | Tracking table name (e.g., `student_otp`)     |
+| `TimeOutMinutes`   | int          | OTP expiration timeout (default: 20)          |
+| `EmailCredential`  | PSCredential | Office365 SMTP account                        |
+| `AdminEmail`       | string[]     | Admin email(s) for error notifications        |
+| `Bcc`              | string[]     | Optional BCC recipients                       |
+| `FormUrl`          | string       | Password reset web form URL                   |
+| `StopTime`         | string       | Time to stop processing (default: "11:00 PM") |
+| `WhatIf`           | switch       | Test mode (no external changes)               |
 
 ## Local Development
 
@@ -108,6 +107,7 @@ Get-SISPwRequests |
 
 ```powershell
 Install-Module -Name CommonScriptFunctions
+# ActiveDirectory module (RSAT) provides Get-ADUser and Set-ADAccountPassword
 Install-Module -Name dbatools
 Install-Module -Name Mailozaurr
 ```
@@ -118,7 +118,6 @@ Install-Module -Name Mailozaurr
 
 ```powershell
 $global:params = @{
-    DomainControllers = 'dc1.domain.local', 'dc2.domain.local'
     ADCredential      = Get-Credential
     SISServer         = 'sisserver.local'
     SISDatabase       = 'SIS_Test'
@@ -127,7 +126,7 @@ $global:params = @{
     IntSqlServer      = 'lookupserver.local'
     IntSqlDatabase    = 'Lookups'
     IntSqlCredential  = Get-Credential
-    IntSqlTable       = 'student_otp_sandbox'
+    IntSqlTable       = 'student_otp_db'
     TimeOutMinutes    = 20
     EmailCredential   = Get-Credential
     AdminEmail        = 'admin@domain.org'
@@ -178,14 +177,12 @@ Expected columns in `student_otp` table:
 ## Email Flow
 
 1. **Success Path:**
-
    - Email sent to `staffEmail` (from UGN table)
    - Contains 6-digit OTP
    - Includes link to password reset form: `{FormUrl}?grade={gr}&otp={otp}`
    - OTP valid for `TimeOutMinutes`
 
 2. **Error: Student Not Found/Disabled:**
-
    - Email sent to `AdminEmail` + original `staffEmail`
    - Uses [html/student-missing-msg.html](html/student-missing-msg.html)
 
